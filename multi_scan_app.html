@@ -3,30 +3,37 @@
   * { box-sizing: border-box; }
   body, .app { font-family: -apple-system, Arial, sans-serif; margin: 0; padding: 0; }
   .app { max-width: 480px; margin: 0 auto; padding: 12px; }
-  h1 { font-size: 17px; margin: 4px 0 6px; }
+  @media (min-width: 700px) {
+    .app { max-width: 900px; }
+    .card { padding: 18px; }
+    .row2, .modes, .tabs { gap: 10px; }
+  }
+  @media (min-width: 1100px) {
+    .app { max-width: 1200px; }
+  }
+  .header-bar { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+  .logo { display:flex; align-items:center; justify-content:center; width:42px; height:42px; border-radius:10px;
+    background: linear-gradient(135deg,#ff7a1a,#ff9a3c); color:white; font-weight:800; font-size:16px; flex-shrink:0; }
+  h1 { font-size: 17px; margin: 0; }
   .note { font-size: 11.5px; color: #7a5b00; background:#fff3cd; border:1px solid #ffe08a; padding:8px; border-radius:8px; margin-bottom:10px; }
   .modes { display: flex; gap: 6px; margin-bottom: 10px; }
-  .mode-btn {
-    flex: 1; padding: 9px 4px; border-radius: 8px; border: 2px solid #ddd;
-    background: #f7f7f7; font-size: 12.5px; font-weight: 600; cursor: pointer; color: #333;
-  }
+  .mode-btn { flex: 1; padding: 9px 4px; border-radius: 8px; border: 2px solid #ddd; background: #f7f7f7; font-size: 12px; font-weight: 600; cursor: pointer; color: #333; }
   .mode-btn.active { border-color: #2563eb; background: #2563eb; color: white; }
   .card { border: 1px solid #e2e2e2; border-radius: 10px; padding: 12px; margin-bottom: 10px; background: #fff; }
-  .btn {
-    width: 100%; padding: 12px; border-radius: 8px; border: none; background: #2563eb;
-    color: white; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px;
-  }
+  .btn { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #2563eb; color: white; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px; }
   .btn.secondary { background: #6b7280; }
   .btn.small { width: auto; padding: 6px 12px; font-size: 12px; margin: 0; }
-  input[type=number], input[type=text] {
-    width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; margin-top: 4px;
+  .btn:disabled { background: #b6c3e0; cursor: not-allowed; }
+  input[type=number], input[type=text], input[type=password], select {
+    width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; margin-top: 4px; background: white;
   }
+  input[disabled] { background: #f0f0f0; color: #666; }
   label.lbl { font-size: 12px; color: #666; display:block; margin-top:8px; font-weight:600; }
   .warn { background: #fff3cd; border: 1px solid #ffe08a; color: #7a5b00; padding: 9px; border-radius: 8px; margin-top: 8px; font-size: 13px; }
   .ok { background: #e6f4ea; border: 1px solid #b7e1c1; color: #1e5b30; padding: 9px; border-radius: 8px; margin-top: 8px; font-size: 13px; }
   .err { background: #fdecea; border: 1px solid #f5c2bc; color: #7a1f14; padding: 9px; border-radius: 8px; margin-top: 8px; font-size: 13px; }
   .muted { color: #888; font-size: 11.5px; margin-top: 5px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { text-align: left; padding: 5px 3px; border-bottom: 1px solid #eee; }
   th { color: #666; font-weight: 600; }
   .cart-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #eee; font-size:13px; }
@@ -35,124 +42,341 @@
   .row2 { display:flex; gap:8px; }
   .row2 > div { flex:1; }
   #reader { width: 100%; border-radius: 8px; overflow: hidden; margin-top: 8px; }
-  details summary { cursor: pointer; font-size: 12.5px; color: #2563eb; font-weight: 600; margin-top: 6px; }
+  .tabs { display:flex; gap:4px; margin-bottom:10px; border-bottom:1px solid #eee; }
+  .tab-btn { flex:1; padding:8px; background:none; border:none; font-size:12.5px; font-weight:600; color:#888; border-bottom:2px solid transparent; cursor:pointer; }
+  .tab-btn.active { color:#2563eb; border-color:#2563eb; }
+  .pending-row { border:1px solid #ffe08a; background:#fffbea; border-radius:8px; padding:8px; margin-bottom:8px; font-size:12.5px; }
 </style>
 
 <div class="app" id="app">
-  <h1>Скан партий — приход / отгрузка / инвентаризация</h1>
 
-  <details>
-    <summary>⚙ Настройки (имя, склад, синхронизация с Google Таблицей)</summary>
+  <!-- ЭКРАН ВХОДА -->
+  <div id="loginScreen">
+    <div class="header-bar"><div class="logo">SD</div><h1>Sardor — вход в систему</h1></div><br>
     <div class="card">
-      <label class="lbl">Ваше имя (запомнится на этом телефоне)</label>
-      <input type="text" id="userName" placeholder="Кто заполняет" />
-      <label class="lbl">Ваш склад / место</label>
-      <input type="text" id="warehouseName" placeholder="Например: СГП завод / Регион-1" />
-      <label class="lbl">Ссылка Google Apps Script (для авто-отправки в таблицу)</label>
+      <label class="lbl">Ссылка на сервер (Google Apps Script)</label>
       <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec" />
-      <div class="muted">Вставьте один раз — дальше каждый проведённый документ будет сам улетать строкой в Google Таблицу.</div>
+      <label class="lbl">Логин</label>
+      <input type="text" id="loginInput" placeholder="Логин" />
+      <label class="lbl">Пароль</label>
+      <input type="password" id="passInput" placeholder="Пароль" />
+      <button class="btn" id="loginBtn">Войти</button>
+      <div id="loginMsg"></div>
     </div>
-  </details>
-
-  <div class="modes">
-    <button class="mode-btn active" data-mode="in">Приход</button>
-    <button class="mode-btn" data-mode="out">Отгрузка</button>
-    <button class="mode-btn" data-mode="check">Инвентаризация</button>
   </div>
 
-  <div class="card">
-    <div id="fromToBlock" class="row2">
-      <div>
-        <label class="lbl" id="fromLabel">Откуда</label>
-        <input type="text" id="fromInput" placeholder="Например: Цех / СГП" />
+  <!-- ОСНОВНОЕ ПРИЛОЖЕНИЕ (после входа) -->
+  <div id="mainScreen" style="display:none;">
+    <div class="header-bar"><div class="logo">SD</div><h1>Склад: <span id="whoAmI"></span> <span class="badge" id="roleBadge"></span></h1></div>
+    <button class="btn secondary" id="logoutBtn" style="margin:8px 0 10px;">Выйти</button>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="ops">Операции</button>
+      <button class="tab-btn" data-tab="pending">Входящие <span class="badge" id="pendingBadge">0</span></button>
+      <button class="tab-btn" data-tab="stock">Остатки</button>
+      <button class="tab-btn" data-tab="history">История</button>
+      <button class="tab-btn" data-tab="admin" id="adminTabBtn" style="display:none;">Админ</button>
+    </div>
+
+    <!-- ВКЛАДКА: ОПЕРАЦИИ -->
+    <div id="tab-ops">
+      <div class="modes" id="modeButtons"></div>
+
+      <div class="card">
+        <div class="row2">
+          <div>
+            <label class="lbl" id="fromLabel">Откуда</label>
+            <select id="fromSelect" style="display:none;"></select>
+            <input type="text" id="fromInput" disabled />
+          </div>
+          <div>
+            <label class="lbl" id="toLabel">Куда</label>
+            <select id="toSelect" style="display:none;"></select>
+            <input type="text" id="toInput" />
+          </div>
+        </div>
+
+        <button class="btn" id="scanBtn">📷 Сканировать штрих-код</button>
+        <div id="reader" style="display:none;"></div>
+
+        <label class="lbl">Код с этикетки (партия-дата)</label>
+        <input type="text" id="codeInput" placeholder="128-14.12.2026" />
+        <div id="dateWarn"></div>
+
+        <label class="lbl" id="qtyLabel">Количество, шт</label>
+        <input type="number" id="qtyInput" placeholder="Количество" />
+
+        <button class="btn" id="addBtn">➕ Добавить в список</button>
+        <div id="scanMsg"></div>
       </div>
-      <div>
-        <label class="lbl" id="toLabel">Куда</label>
-        <input type="text" id="toInput" placeholder="Например: Регион-1" />
+
+      <div class="card" id="cartCard" style="display:none;">
+        <b style="font-size:13px;">Текущий документ <span class="badge" id="cartCount">0</span></b>
+        <div id="cartList"></div>
+        <button class="btn" id="commitBtn" disabled>✅ Провести весь список</button>
+        <div class="muted" id="commitHint"></div>
+        <button class="btn secondary" id="clearCartBtn">Очистить список</button>
       </div>
     </div>
 
-    <button class="btn" id="scanBtn">📷 Сканировать штрих-код</button>
-    <div id="reader" style="display:none;"></div>
-
-    <label class="lbl">Код с этикетки (партия-дата), например 128-14.05.2026</label>
-    <input type="text" id="codeInput" placeholder="128-14.05.2026" />
-
-    <label class="lbl" id="qtyLabel">Количество, шт</label>
-    <input type="number" id="qtyInput" placeholder="Количество" />
-
-    <button class="btn" id="addBtn">➕ Добавить в список</button>
-    <div id="scanMsg"></div>
-  </div>
-
-  <div class="card" id="cartCard" style="display:none;">
-    <b style="font-size:13px;">Текущий документ <span class="badge" id="cartCount">0</span></b>
-    <div id="cartList"></div>
-    <button class="btn" id="commitBtn">✅ Провести весь список</button>
-    <button class="btn secondary" id="clearCartBtn">Очистить список</button>
-  </div>
-
-  <div class="card">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <b style="font-size:13px;">Остатки по всем складам</b>
-      <div>
-        <button class="btn small secondary" id="exportBtn">⬇ CSV</button>
-        <button class="btn small secondary" id="refreshBtn">Обновить</button>
+    <!-- ВКЛАДКА: ВХОДЯЩИЕ -->
+    <div id="tab-pending" style="display:none;">
+      <div class="card">
+        <b style="font-size:13px;">Отправлено в ваш адрес, ожидает приёмки</b>
+        <div id="pendingList" class="muted">Загрузка…</div>
       </div>
     </div>
-    <div id="stockTable" class="muted">Загрузка…</div>
+
+    <!-- ВКЛАДКА: ОСТАТКИ -->
+    <div id="tab-stock" style="display:none;">
+      <div class="card" id="snapshotFilterCard" style="display:none;">
+        <b style="font-size:13px;">Фильтр (для Админа)</b>
+        <label class="lbl">Склады</label>
+        <select id="snapWarehouses" multiple style="height:90px;"></select>
+        <div class="muted">Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано = все склады.</div>
+        <div class="row2">
+          <div><label class="lbl">С даты</label><input type="date" id="snapDateFrom" /></div>
+          <div><label class="lbl">По дату</label><input type="date" id="snapDateTo" /></div>
+        </div>
+        <button class="btn" id="applySnapshotBtn">Показать за период</button>
+        <button class="btn secondary" id="snapshotNowBtn">📸 Сделать снимок остатков сейчас</button>
+      </div>
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+          <b style="font-size:13px;">Остатки <span id="stockScopeLabel"></span></b>
+          <div>
+            <button class="btn small secondary" id="exportStockBtn">⬇ Excel</button>
+            <button class="btn small secondary" id="printStockBtn">🖨 PDF/Печать</button>
+            <button class="btn small secondary" id="refreshStockBtn">Текущие (сейчас)</button>
+          </div>
+        </div>
+        <div id="stockTable" class="muted">Загрузка…</div>
+      </div>
+    </div>
+
+    <!-- ВКЛАДКА: ИСТОРИЯ -->
+    <div id="tab-history" style="display:none;">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between;">
+          <b style="font-size:13px;">История прихода/отгрузки</b>
+          <div>
+            <button class="btn small secondary" id="printHistoryBtn">🖨 Печать</button>
+            <button class="btn small secondary" id="refreshHistoryBtn">Обновить</button>
+          </div>
+        </div>
+        <div id="historyTable" class="muted">Загрузка…</div>
+      </div>
+    </div>
+
+    <!-- ВКЛАДКА: АДМИН -->
+    <div id="tab-admin" style="display:none;">
+      <div class="card">
+        <b style="font-size:13px;">Пользователи</b>
+        <div id="usersTable" class="muted">Загрузка…</div>
+        <label class="lbl">Логин</label>
+        <input type="text" id="newUserLogin" />
+        <label class="lbl">Пароль</label>
+        <input type="text" id="newUserPass" />
+        <label class="lbl">Роль</label>
+        <select id="newUserRole">
+          <option value="СГП">СГП (завсклад СГП)</option>
+          <option value="Регион">Регион (завсклад региона)</option>
+          <option value="Админ">Админ</option>
+        </select>
+        <label class="lbl">Склад (для роли СГП/Регион)</label>
+        <input type="text" id="newUserWarehouse" placeholder="Например: Регион-3" />
+        <button class="btn" id="addUserBtn">➕ Добавить / обновить пользователя</button>
+        <div id="adminMsg"></div>
+      </div>
+      <div class="card">
+        <b style="font-size:13px;">Список складов (для выпадающих меню)</b>
+        <div id="warehousesAdminList" class="muted">Загрузка…</div>
+        <label class="lbl">Новый склад</label>
+        <input type="text" id="newWarehouseName" placeholder="Например: Регион-3" />
+        <button class="btn" id="addWarehouseBtn">➕ Добавить склад</button>
+      </div>
+    </div>
+
   </div>
 </div>
 
 <script>
-let currentMode = "in";
+let SCRIPT_URL = "";
+let ME = null; // { login, role, warehouse }
+let currentMode = "";
 let cart = [];
 let html5QrCode = null;
+let warehousesList = [];
 
-(async () => {
-  try { const r = await window.storage.get("my_user_name", false); if (r) document.getElementById("userName").value = r.value; } catch (e) {}
-  try { const r = await window.storage.get("my_warehouse_name", false); if (r) document.getElementById("warehouseName").value = r.value; } catch (e) {}
-  try { const r = await window.storage.get("my_script_url", false); if (r) document.getElementById("scriptUrl").value = r.value; } catch (e) {}
-  applyModeUI();
+// ---------- вход ----------
+(function restoreSession() {
+  const saved = localStorage.getItem("scan_session");
+  const url = localStorage.getItem("scan_script_url");
+  if (url) document.getElementById("scriptUrl").value = url;
+  if (saved) {
+    ME = JSON.parse(saved);
+    SCRIPT_URL = url;
+    showMain();
+  }
 })();
 
-document.getElementById("userName").onchange = async (e) => { await window.storage.set("my_user_name", e.target.value, false); };
-document.getElementById("warehouseName").onchange = async (e) => { await window.storage.set("my_warehouse_name", e.target.value, false); applyModeUI(); };
-document.getElementById("scriptUrl").onchange = async (e) => { await window.storage.set("my_script_url", e.target.value.trim(), false); };
+document.getElementById("loginBtn").onclick = async () => {
+  const msg = document.getElementById("loginMsg");
+  SCRIPT_URL = document.getElementById("scriptUrl").value.trim();
+  const login = document.getElementById("loginInput").value.trim();
+  const password = document.getElementById("passInput").value;
+  if (!SCRIPT_URL || !login || !password) { msg.innerHTML = `<div class="err">Заполните все поля</div>`; return; }
+  msg.innerHTML = `<div class="muted">Проверка…</div>`;
+  try {
+    const res = await apiPost({ action: "login", login, password });
+    if (res.ok) {
+      ME = { login, role: res.role, warehouse: res.warehouse };
+      localStorage.setItem("scan_session", JSON.stringify(ME));
+      localStorage.setItem("scan_script_url", SCRIPT_URL);
+      showMain();
+    } else {
+      msg.innerHTML = `<div class="err">Неверный логин или пароль</div>`;
+    }
+  } catch (e) {
+    msg.innerHTML = `<div class="err">Не удалось связаться с сервером. Проверьте ссылку. (${e})</div>`;
+  }
+};
 
-function applyModeUI() {
-  const isCheck = currentMode === "check";
-  document.getElementById("qtyLabel").style.display = isCheck ? "none" : "block";
-  document.getElementById("qtyInput").style.display = isCheck ? "none" : "block";
-  document.getElementById("addBtn").textContent = isCheck ? "🔍 Проверить" : "➕ Добавить в список";
+document.getElementById("logoutBtn").onclick = () => {
+  localStorage.removeItem("scan_session");
+  location.reload();
+};
 
-  const fromLabel = document.getElementById("fromLabel"), toLabel = document.getElementById("toLabel");
-  const fromInput = document.getElementById("fromInput"), toInput = document.getElementById("toInput");
-  toInput.style.display = "block"; toLabel.style.display = "block";
-  const wh = document.getElementById("warehouseName").value;
+async function apiPost(payload) {
+  const res = await fetch(SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" }, // избегаем CORS-preflight
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
+async function apiGet(params) {
+  const url = SCRIPT_URL + "?" + new URLSearchParams(params).toString();
+  const res = await fetch(url);
+  return res.json();
+}
 
-  if (currentMode === "in") {
-    fromLabel.textContent = "Откуда пришло"; toLabel.textContent = "Куда оприходовано";
-    fromInput.placeholder = "Например: Цех / Производство"; toInput.value = wh;
-  } else if (currentMode === "out") {
-    fromLabel.textContent = "Откуда отгружается"; toLabel.textContent = "Куда отправляется";
-    fromInput.value = wh; toInput.placeholder = "Например: Регион-2";
-  } else {
-    fromLabel.textContent = "Где проверялось"; fromInput.value = wh;
-    toInput.style.display = "none"; toLabel.style.display = "none";
+async function showMain() {
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("mainScreen").style.display = "block";
+  document.getElementById("whoAmI").textContent = ME.warehouse;
+  document.getElementById("roleBadge").textContent = ME.role;
+
+  try {
+    const r = await apiGet({ action: "warehouses" });
+    warehousesList = r.warehouses || [];
+  } catch (e) { warehousesList = []; }
+
+  setupModes();
+  refreshPendingBadge();
+  setupSnapshotFilter();
+  if (ME.role === "Админ") {
+    document.getElementById("adminTabBtn").style.display = "block";
+    document.querySelector('.tab-btn[data-tab="ops"]').style.display = "none";
+    document.querySelector('.tab-btn[data-tab="pending"]').style.display = "none";
   }
 }
 
-document.querySelectorAll(".mode-btn").forEach(btn => {
+// ---------- вкладки ----------
+document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.onclick = () => {
-    document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    currentMode = btn.dataset.mode;
-    document.getElementById("scanMsg").innerHTML = "";
-    applyModeUI();
+    ["ops","pending","stock","history","admin"].forEach(t => {
+      document.getElementById("tab-" + t).style.display = (t === btn.dataset.tab) ? "block" : "none";
+    });
+    if (btn.dataset.tab === "pending") loadPending();
+    if (btn.dataset.tab === "stock") loadStock();
+    if (btn.dataset.tab === "history") loadHistory();
+    if (btn.dataset.tab === "admin") { loadUsers(); loadWarehousesAdmin(); }
   };
 });
 
+// ---------- режимы операций (зависят от роли) ----------
+function setupModes() {
+  const box = document.getElementById("modeButtons");
+  box.innerHTML = "";
+  const modes = ME.role === "СГП"
+    ? [["in","Приход"], ["out_sgp","Отгрузка в регион"]]
+    : [["in","Приход"], ["out_agent","Отгрузка агенту"], ["check","Инвентаризация"]];
+  modes.forEach(([id, label], i) => {
+    const b = document.createElement("button");
+    b.className = "mode-btn" + (i === 0 ? " active" : "");
+    b.dataset.mode = id;
+    b.textContent = label;
+    b.onclick = () => {
+      document.querySelectorAll(".mode-btn").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      currentMode = id;
+      cart = []; renderCart();
+      document.getElementById("scanMsg").innerHTML = "";
+      applyModeUI();
+    };
+    box.appendChild(b);
+  });
+  currentMode = modes[0][0];
+  applyModeUI();
+}
+
+function applyModeUI() {
+  const fromLabel = document.getElementById("fromLabel"), toLabel = document.getElementById("toLabel");
+  const fromInput = document.getElementById("fromInput"), toInput = document.getElementById("toInput");
+  const fromSelect = document.getElementById("fromSelect"), toSelect = document.getElementById("toSelect");
+  const qtyRow = document.getElementById("qtyLabel");
+  fromSelect.style.display = "none"; toSelect.style.display = "none";
+  fromInput.style.display = "block"; toInput.style.display = "block";
+  toInput.disabled = false;
+  qtyRow.style.display = "block";
+  document.getElementById("qtyInput").style.display = "block";
+  document.getElementById("addBtn").textContent = "➕ Добавить в список";
+
+  if (currentMode === "in") {
+    // Приход: Откуда по умолчанию "Цех", можно сменить на регион (редко); Куда — фиксирован, свой склад
+    fromLabel.textContent = "Откуда пришло";
+    toLabel.textContent = "Куда оприходовано";
+    fromSelect.style.display = "block"; fromInput.style.display = "none";
+    fromSelect.innerHTML = `<option value="Цех">Цех (по умолчанию)</option>` +
+      warehousesList.filter(w => w !== ME.warehouse).map(w => `<option value="${w}">${w}</option>`).join("");
+    toInput.value = ME.warehouse; toInput.disabled = true;
+  } else if (currentMode === "out_sgp") {
+    // Отгрузка СГП → регион: Откуда фиксирован СГП, Куда — обязательный выбор региона
+    fromLabel.textContent = "Откуда (не меняется)";
+    fromInput.value = ME.warehouse; fromInput.disabled = true;
+    toLabel.textContent = "Куда отправляется *";
+    toSelect.style.display = "block"; toInput.style.display = "none";
+    toSelect.innerHTML = `<option value="">— выберите склад —</option>` + warehousesList.map(w => `<option value="${w}">${w}</option>`).join("");
+  } else if (currentMode === "out_agent") {
+    fromLabel.textContent = "Откуда (не меняется)";
+    fromInput.value = ME.warehouse; fromInput.disabled = true;
+    toLabel.textContent = "Кому (агент) *";
+    toInput.value = ""; toInput.placeholder = "Имя агента / точки";
+  } else if (currentMode === "check") {
+    fromLabel.textContent = "Где проверяется";
+    fromInput.value = ME.warehouse; fromInput.disabled = true;
+    toLabel.textContent = ""; toInput.style.display = "none"; toLabel.style.display = "none";
+    qtyRow.style.display = "none"; document.getElementById("qtyInput").style.display = "none";
+    document.getElementById("addBtn").textContent = "🔍 Проверить";
+  }
+  updateCommitState();
+}
+
+function getFrom() {
+  const sel = document.getElementById("fromSelect");
+  if (sel.style.display !== "none") return sel.value;
+  return document.getElementById("fromInput").value.trim();
+}
+function getTo() {
+  const sel = document.getElementById("toSelect");
+  if (sel.style.display !== "none") return sel.value;
+  return document.getElementById("toInput").value.trim();
+}
+
+// ---------- сканирование ----------
 document.getElementById("scanBtn").onclick = () => {
   const readerDiv = document.getElementById("reader");
   readerDiv.style.display = "block";
@@ -163,162 +387,276 @@ document.getElementById("scanBtn").onclick = () => {
       formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128] },
     (decodedText) => {
       const clean = decodedText.replace(/\*/g, "").trim();
-      // строгий формат: 3 цифры - ДД.ММ.ГГГГ, например 128-14.12.2026
-      const STRICT_FORMAT = /^\d{3}-\d{2}\.\d{2}\.\d{4}$/;
-      if (!STRICT_FORMAT.test(clean)) {
-        // не тот формат — тихо игнорируем этот кадр и продолжаем сканировать дальше
-        return;
-      }
+      if (!/^\d{3}-\d{2}\.\d{2}\.\d{4}$/.test(clean)) return; // не тот формат — игнорируем кадр
       document.getElementById("codeInput").value = clean;
       html5QrCode.stop().then(() => { readerDiv.style.display = "none"; });
+      checkOldDate(clean);
     },
     () => {}
   ).catch(err => {
-    document.getElementById("scanMsg").innerHTML = `<div class="err">Камера недоступна: ${err}. Работает только если страница открыта по https (не как локальный файл). Введите код вручную ниже.</div>`;
+    document.getElementById("scanMsg").innerHTML = `<div class="err">Камера недоступна: ${err}</div>`;
   });
 };
 
+document.getElementById("codeInput").addEventListener("change", (e) => checkOldDate(e.target.value));
+
+function checkOldDate(code) {
+  const p = parseCode(code);
+  const warnBox = document.getElementById("dateWarn");
+  warnBox.innerHTML = "";
+  if (!p || currentMode !== "in") return;
+  const days = (Date.now() - new Date(p.isoDate).getTime()) / 86400000;
+  if (days > 10) {
+    warnBox.innerHTML = `<div class="warn">⚠ Дата производства ${p.displayDate} — уже ${Math.round(days)} дн. назад. Возможно, это пришло не из Цеха, а с регионального склада — проверьте поле "Откуда".</div>`;
+  }
+}
+
 function parseCode(text) {
   const clean = text.replace(/\*/g, "").trim();
-  const m = clean.match(/^(\d+)-(\d{2})\.(\d{2})\.(\d{4})$/);
+  const m = clean.match(/^(\d{3})-(\d{2})\.(\d{2})\.(\d{4})$/);
   if (!m) return null;
   const [, lot, dd, mm, yyyy] = m;
   return { lot, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
 }
 
-function stockKey(lot, isoDate) { return `stock:${lot}:${isoDate}`; }
-async function getStock(key) { try { const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; } catch (e) { return null; } }
-async function setStock(key, obj) { await window.storage.set(key, JSON.stringify(obj), true); }
-async function logEvent(entry) {
-  const key = `log:${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-  await window.storage.set(key, JSON.stringify(entry), true);
-}
-
-async function sendToSheet(entry) {
-  const url = document.getElementById("scriptUrl").value.trim();
-  if (!url) return;
-  const opName = { in: "Приход", out: "Отгрузка", check: "Инвентаризация" }[entry.mode] || entry.mode;
-  const payload = {
-    datetime: new Date(entry.ts).toLocaleString("ru-RU"),
-    user: entry.user, operation: opName, from: entry.from, to: entry.to,
-    lot: entry.lot, prodDate: entry.isoDate.split("-").reverse().join("."), qty: entry.qty
-  };
-  try {
-    await fetch(url, { method: "POST", mode: "no-cors", body: JSON.stringify(payload) });
-  } catch (e) { /* офлайн — не блокируем работу приложения */ }
-}
-
+// ---------- корзина документа ----------
 document.getElementById("addBtn").onclick = async () => {
   const msg = document.getElementById("scanMsg");
-  const raw = document.getElementById("codeInput").value;
-  const p = parseCode(raw);
-  if (!p) { msg.innerHTML = `<div class="err">Формат не распознан. Нужно: ПАРТИЯ-ДД.ММ.ГГГГ, например 128-14.05.2026</div>`; return; }
+  const p = parseCode(document.getElementById("codeInput").value);
+  if (!p) { msg.innerHTML = `<div class="err">Формат не распознан. Нужно: 128-14.12.2026</div>`; return; }
 
   if (currentMode === "check") {
-    const rec = await getStock(stockKey(p.lot, p.isoDate));
-    msg.innerHTML = rec ? `<div class="ok">Партия ${p.lot} от ${p.displayDate}: остаток <b>${rec.qty} шт</b></div>`
-                         : `<div class="err">Партия ${p.lot} от ${p.displayDate} в базе не найдена.</div>`;
+    try {
+      const r = await apiGet({ action: "stock" });
+      const rec = (r.stock || []).find(s => s.warehouse === ME.warehouse && s.lot === p.lot && s.prodDate === p.isoDate);
+      msg.innerHTML = rec ? `<div class="ok">Партия ${p.lot} от ${p.displayDate}: остаток <b>${rec.qty} шт</b></div>`
+                           : `<div class="err">Партия ${p.lot} от ${p.displayDate} не найдена на вашем складе.</div>`;
+    } catch (e) { msg.innerHTML = `<div class="err">Ошибка связи с сервером</div>`; }
     document.getElementById("codeInput").value = "";
     return;
   }
+
   const qty = parseFloat(document.getElementById("qtyInput").value);
   if (!qty || qty <= 0) { msg.innerHTML = `<div class="err">Введите количество</div>`; return; }
   cart.push({ ...p, qty });
   renderCart();
   document.getElementById("codeInput").value = "";
   document.getElementById("qtyInput").value = "";
+  document.getElementById("dateWarn").innerHTML = "";
   msg.innerHTML = `<div class="ok">Добавлено: партия ${p.lot}, ${p.displayDate}, ${qty} шт</div>`;
 };
 
 function renderCart() {
   const card = document.getElementById("cartCard"), list = document.getElementById("cartList");
   document.getElementById("cartCount").textContent = cart.length;
-  if (cart.length === 0) { card.style.display = "none"; return; }
-  card.style.display = "block";
-  list.innerHTML = cart.map((c, i) => `<div class="cart-row"><span>Партия ${c.lot} · ${c.displayDate} · ${c.qty} шт</span><button onclick="window.__removeCartItem(${i})">✕</button></div>`).join("");
+  card.style.display = cart.length ? "block" : "none";
+  list.innerHTML = cart.map((c, i) => `<div class="cart-row"><span>Партия ${c.lot} · ${c.displayDate} · ${c.qty} шт</span><button onclick="window.__rm(${i})">✕</button></div>`).join("");
+  updateCommitState();
 }
-window.__removeCartItem = (i) => { cart.splice(i, 1); renderCart(); };
+window.__rm = (i) => { cart.splice(i, 1); renderCart(); };
 document.getElementById("clearCartBtn").onclick = () => { cart = []; renderCart(); };
 
+function updateCommitState() {
+  const btn = document.getElementById("commitBtn");
+  const hint = document.getElementById("commitHint");
+  const from = getFrom(), to = getTo();
+  const missing = [];
+  if (!from) missing.push("Откуда");
+  if (!to) missing.push("Куда");
+  if (cart.length === 0) missing.push("хотя бы одна позиция с количеством");
+  btn.disabled = missing.length > 0;
+  hint.textContent = missing.length ? `Нельзя провести: не заполнено — ${missing.join(", ")}` : "";
+}
+document.getElementById("fromSelect").addEventListener("change", updateCommitState);
+document.getElementById("toSelect").addEventListener("change", updateCommitState);
+document.getElementById("toInput").addEventListener("input", updateCommitState);
+
 document.getElementById("commitBtn").onclick = async () => {
-  const user = document.getElementById("userName").value.trim() || "Не указан";
-  const from = document.getElementById("fromInput").value.trim() || "Не указано";
-  const to = document.getElementById("toInput").value.trim() || "Не указано";
+  const from = getFrom(), to = getTo();
   const msg = document.getElementById("scanMsg");
-  let warnings = "";
-
-  for (const item of cart) {
-    const key = stockKey(item.lot, item.isoDate);
-    const existing = await getStock(key);
-    const before = existing ? existing.qty : 0;
-
-    if (currentMode === "out") {
-      const list = await window.storage.list(`stock:${item.lot}:`, true);
-      if (list && list.keys) {
-        for (const k of list.keys) {
-          if (k === key) continue;
-          const v = await getStock(k);
-          const otherDate = k.split(":")[2];
-          if (v && v.qty > 0 && otherDate < item.isoDate) {
-            warnings += `<div class="warn">⚠ Партия ${item.lot}: есть более старая дата ${otherDate.split("-").reverse().join(".")} с остатком ${v.qty} шт!</div>`;
-          }
-        }
-      }
-    }
-    const delta = currentMode === "in" ? item.qty : -item.qty;
-    const after = before + delta;
-    await setStock(key, { qty: after, updated: Date.now() });
-    const entry = { ts: Date.now(), user, from, to, mode: currentMode, lot: item.lot, isoDate: item.isoDate, qty: item.qty, before, after };
-    await logEvent(entry);
-    await sendToSheet(entry);
+  const opName = { in: "Приход", out_sgp: "Отгрузка (СГП)", out_agent: "Отгрузка агенту" }[currentMode];
+  try {
+    await apiPost({
+      action: "commit", user: ME.login, role: ME.role, operation: opName,
+      from, to, items: cart.map(c => ({ lot: c.lot, prodDate: c.isoDate, qty: c.qty }))
+    });
+    msg.innerHTML = `<div class="ok">Документ проведён (${cart.length} партий). Данные отправлены в Google Таблицу.</div>`;
+    cart = []; renderCart();
+  } catch (e) {
+    msg.innerHTML = `<div class="err">Не удалось отправить на сервер: ${e}</div>`;
   }
-
-  msg.innerHTML = warnings + `<div class="ok">Документ проведён (${cart.length} партий)</div>`;
-  cart = [];
-  renderCart();
-  loadStockTable();
 };
 
-document.getElementById("refreshBtn").onclick = loadStockTable;
-
-async function loadStockTable() {
-  const el = document.getElementById("stockTable");
+// ---------- входящие (для регионов) ----------
+async function refreshPendingBadge() {
   try {
-    const list = await window.storage.list("stock:", true);
-    if (!list || !list.keys || list.keys.length === 0) { el.innerHTML = "Пока нет данных."; return; }
-    const rows = [];
-    for (const k of list.keys) {
-      const v = await getStock(k);
-      const parts = k.split(":");
-      if (v) rows.push({ lot: parts[1], isoDate: parts[2], qty: v.qty });
-    }
-    rows.sort((a, b) => a.lot.localeCompare(b.lot) || a.isoDate.localeCompare(b.isoDate));
-    let html = "<table><tr><th>Код СКЮ</th><th>Дата произв.</th><th>Остаток</th></tr>";
-    for (const r of rows) html += `<tr><td>${r.lot}</td><td>${r.isoDate.split("-").reverse().join(".")}</td><td>${r.qty}</td></tr>`;
-    html += "</table>";
-    el.innerHTML = html;
-  } catch (e) { el.innerHTML = "Не удалось загрузить остатки."; }
+    const r = await apiGet({ action: "pending", warehouse: ME.warehouse });
+    document.getElementById("pendingBadge").textContent = (r.pending || []).length;
+  } catch (e) {}
+}
+async function loadPending() {
+  const el = document.getElementById("pendingList");
+  el.innerHTML = "Загрузка…";
+  try {
+    const r = await apiGet({ action: "pending", warehouse: ME.warehouse });
+    const items = r.pending || [];
+    if (items.length === 0) { el.innerHTML = "Нет ожидающих поставок."; return; }
+    el.innerHTML = items.map(it => `
+      <div class="pending-row">
+        Партия <b>${it.lot}</b> · дата произв. ${it.prodDate.split("-").reverse().join(".")} · <b>${it.qty} шт</b><br>
+        Откуда: ${it.from} · отправлено: ${new Date(it.sentAt).toLocaleString("ru-RU")}
+        <button class="btn small" style="margin-top:6px;" onclick="window.__receive('${it.id}')">✅ Принять</button>
+      </div>`).join("");
+  } catch (e) { el.innerHTML = "Ошибка загрузки."; }
+}
+window.__receive = async (id) => {
+  await apiPost({ action: "receive", id });
+  loadPending();
+  refreshPendingBadge();
+};
+
+// ---------- остатки ----------
+document.getElementById("refreshStockBtn").onclick = loadStock;
+let lastStockRows = [];
+async function loadStock() {
+  const el = document.getElementById("stockTable");
+  el.innerHTML = "Загрузка…";
+  document.getElementById("stockScopeLabel").textContent = ME.role === "Админ" ? "— текущие, по всем складам" : "— текущие, по вашему складу (" + ME.warehouse + ")";
+  try {
+    const r = await apiGet({ action: "stock" });
+    let rows = (r.stock || []).filter(s => s.qty !== 0);
+    if (ME.role !== "Админ") rows = rows.filter(s => s.warehouse === ME.warehouse);
+    rows.sort((a,b) => a.warehouse.localeCompare(b.warehouse) || a.lot.localeCompare(b.lot) || a.prodDate.localeCompare(b.prodDate));
+    lastStockRows = rows;
+    renderStockTable(rows, ME.role === "Админ");
+  } catch (e) { el.innerHTML = "Ошибка загрузки."; }
 }
 
-const OP_NAMES = { in: "Приход", out: "Отгрузка", check: "Инвентаризация" };
-document.getElementById("exportBtn").onclick = async () => {
+function renderStockTable(rows, showWarehouseCol, showDateCol) {
+  const el = document.getElementById("stockTable");
+  if (rows.length === 0) { el.innerHTML = "Нет данных за выбранный период/фильтр."; return; }
+  let html = "<table><tr>" + (showDateCol ? "<th>Дата снимка</th>" : "") + (showWarehouseCol ? "<th>Склад</th>" : "") + "<th>Код СКЮ</th><th>Дата произв.</th><th>Остаток</th></tr>";
+  rows.forEach(r => html += `<tr>${showDateCol ? "<td>"+r.snapDate.split("-").reverse().join(".")+"</td>" : ""}${showWarehouseCol ? "<td>"+r.warehouse+"</td>" : ""}<td>${r.lot}</td><td>${r.prodDate.split("-").reverse().join(".")}</td><td>${r.qty}</td></tr>`);
+  html += "</table>";
+  el.innerHTML = html;
+}
+
+async function setupSnapshotFilter() {
+  if (ME.role !== "Админ") return;
+  document.getElementById("snapshotFilterCard").style.display = "block";
+  const sel = document.getElementById("snapWarehouses");
+  sel.innerHTML = warehousesList.map(w => `<option value="${w}">${w}</option>`).join("");
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById("snapDateFrom").value = today;
+  document.getElementById("snapDateTo").value = today;
+}
+
+document.getElementById("applySnapshotBtn").onclick = async () => {
+  const sel = document.getElementById("snapWarehouses");
+  const chosen = Array.from(sel.selectedOptions).map(o => o.value);
+  const warehouses = chosen.length ? chosen.join(",") : "ALL";
+  const dateFrom = document.getElementById("snapDateFrom").value;
+  const dateTo = document.getElementById("snapDateTo").value;
+  document.getElementById("stockScopeLabel").textContent = `— снимок за период ${dateFrom} — ${dateTo}, ${chosen.length ? chosen.join(", ") : "все склады"}`;
+  const el = document.getElementById("stockTable");
+  el.innerHTML = "Загрузка…";
   try {
-    const list = await window.storage.list("log:", true);
-    if (!list || !list.keys || list.keys.length === 0) { alert("Журнал пуст"); return; }
-    let csv = "Дата и время;Пользователь;Операция;Откуда;Куда;Код СКЮ;Дата производства;Количество, шт\n";
-    const rows = [];
-    for (const k of list.keys) { const r = await window.storage.get(k, true); rows.push(JSON.parse(r.value)); }
-    rows.sort((a, b) => a.ts - b.ts);
-    for (const v of rows) {
-      csv += `${new Date(v.ts).toLocaleString("ru-RU")};${v.user};${OP_NAMES[v.mode] || v.mode};${v.from};${v.to};${v.lot};${v.isoDate.split("-").reverse().join(".")};${v.qty}\n`;
-    }
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `журнал_складов_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  } catch (e) { alert("Ошибка выгрузки: " + e); }
+    const r = await apiGet({ action: "snapshot", warehouses, dateFrom, dateTo });
+    lastStockRows = r.snapshot || [];
+    renderStockTable(lastStockRows, true, true);
+  } catch (e) { el.innerHTML = "Ошибка загрузки."; }
 };
 
-loadStockTable();
+document.getElementById("snapshotNowBtn").onclick = async () => {
+  await apiPost({ action: "snapshotNow" });
+  alert("Снимок остатков сохранён в StockHistory.");
+};
+document.getElementById("printStockBtn").onclick = () => window.print();
+document.getElementById("exportStockBtn").onclick = () => {
+  if (lastStockRows.length === 0) { alert("Нет данных для выгрузки"); return; }
+  const showWh = ME.role === "Админ";
+  const showDate = lastStockRows[0] && lastStockRows[0].snapDate !== undefined;
+  let csv = (showDate ? "Дата снимка;" : "") + (showWh ? "Склад;" : "") + "Код СКЮ;Дата производства;Остаток, шт\n";
+  lastStockRows.forEach(r => {
+    csv += (showDate ? r.snapDate.split("-").reverse().join(".")+";" : "") + (showWh ? r.warehouse+";" : "") + `${r.lot};${r.prodDate.split("-").reverse().join(".")};${r.qty}\n`;
+  });
+  downloadCsv(csv, "остатки_" + new Date().toISOString().slice(0,10) + ".csv");
+};
+function downloadCsv(csv, filename) {
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// ---------- админ: пользователи ----------
+async function loadUsers() {
+  const el = document.getElementById("usersTable");
+  el.innerHTML = "Загрузка…";
+  try {
+    const r = await apiGet({ action: "users" });
+    let html = "<table><tr><th>Логин</th><th>Роль</th><th>Склад</th><th></th></tr>";
+    (r.users || []).forEach(u => html += `<tr><td>${u.login}</td><td>${u.role}</td><td>${u.warehouse}</td><td><button class="btn small secondary" onclick="window.__delUser('${u.login}')">✕</button></td></tr>`);
+    html += "</table>";
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = "Ошибка загрузки."; }
+}
+document.getElementById("addUserBtn").onclick = async () => {
+  const login = document.getElementById("newUserLogin").value.trim();
+  const password = document.getElementById("newUserPass").value.trim();
+  const role = document.getElementById("newUserRole").value;
+  const warehouse = document.getElementById("newUserWarehouse").value.trim() || "-";
+  const msg = document.getElementById("adminMsg");
+  if (!login || !password) { msg.innerHTML = `<div class="err">Укажите логин и пароль</div>`; return; }
+  await apiPost({ action: "addUser", login, password, role, warehouse });
+  msg.innerHTML = `<div class="ok">Пользователь сохранён</div>`;
+  document.getElementById("newUserLogin").value = "";
+  document.getElementById("newUserPass").value = "";
+  document.getElementById("newUserWarehouse").value = "";
+  loadUsers();
+};
+window.__delUser = async (login) => {
+  if (!confirm("Удалить пользователя " + login + "?")) return;
+  await apiPost({ action: "deleteUser", login });
+  loadUsers();
+};
+
+// ---------- админ: склады ----------
+async function loadWarehousesAdmin() {
+  const el = document.getElementById("warehousesAdminList");
+  try {
+    const r = await apiGet({ action: "warehouses" });
+    el.innerHTML = (r.warehouses || []).map(w => `<div class="cart-row"><span>${w}</span><button onclick="window.__delWh('${w}')">✕</button></div>`).join("") || "Список пуст.";
+  } catch (e) { el.innerHTML = "Ошибка загрузки."; }
+}
+document.getElementById("addWarehouseBtn").onclick = async () => {
+  const name = document.getElementById("newWarehouseName").value.trim();
+  if (!name) return;
+  await apiPost({ action: "addWarehouse", name });
+  document.getElementById("newWarehouseName").value = "";
+  loadWarehousesAdmin();
+};
+window.__delWh = async (name) => {
+  if (!confirm("Удалить склад " + name + "?")) return;
+  await apiPost({ action: "deleteWarehouse", name });
+  loadWarehousesAdmin();
+};
+
+// ---------- история ----------
+document.getElementById("refreshHistoryBtn").onclick = loadHistory;
+document.getElementById("printHistoryBtn").onclick = () => window.print();
+async function loadHistory() {
+  const el = document.getElementById("historyTable");
+  el.innerHTML = "Загрузка…";
+  try {
+    const r = await apiGet({ action: "history", warehouse: ME.warehouse });
+    const rows = r.history || [];
+    if (rows.length === 0) { el.innerHTML = "Пока нет данных."; return; }
+    let html = "<table><tr><th>Дата</th><th>Опер.</th><th>Откуда</th><th>Куда</th><th>СКЮ</th><th>Кол-во</th><th>Статус</th></tr>";
+    rows.forEach(r => html += `<tr><td>${new Date(r.ts).toLocaleDateString("ru-RU")}</td><td>${r.op}</td><td>${r.from}</td><td>${r.to}</td><td>${r.lot}</td><td>${r.qty}</td><td>${r.status||""}</td></tr>`);
+    html += "</table>";
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = "Ошибка загрузки."; }
+}
 </script>
