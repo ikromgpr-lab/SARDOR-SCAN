@@ -1,0 +1,317 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body, .app { font-family: -apple-system, Arial, sans-serif; margin: 0; padding: 0; }
+  .app { max-width: 480px; margin: 0 auto; padding: 12px; }
+  h1 { font-size: 17px; margin: 4px 0 6px; }
+  .note { font-size: 11.5px; color: #7a5b00; background:#fff3cd; border:1px solid #ffe08a; padding:8px; border-radius:8px; margin-bottom:10px; }
+  .modes { display: flex; gap: 6px; margin-bottom: 10px; }
+  .mode-btn {
+    flex: 1; padding: 9px 4px; border-radius: 8px; border: 2px solid #ddd;
+    background: #f7f7f7; font-size: 12.5px; font-weight: 600; cursor: pointer; color: #333;
+  }
+  .mode-btn.active { border-color: #2563eb; background: #2563eb; color: white; }
+  .card { border: 1px solid #e2e2e2; border-radius: 10px; padding: 12px; margin-bottom: 10px; background: #fff; }
+  .btn {
+    width: 100%; padding: 12px; border-radius: 8px; border: none; background: #2563eb;
+    color: white; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px;
+  }
+  .btn.secondary { background: #6b7280; }
+  .btn.small { width: auto; padding: 6px 12px; font-size: 12px; margin: 0; }
+  input[type=number], input[type=text] {
+    width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; margin-top: 4px;
+  }
+  label.lbl { font-size: 12px; color: #666; display:block; margin-top:8px; font-weight:600; }
+  .warn { background: #fff3cd; border: 1px solid #ffe08a; color: #7a5b00; padding: 9px; border-radius: 8px; margin-top: 8px; font-size: 13px; }
+  .ok { background: #e6f4ea; border: 1px solid #b7e1c1; color: #1e5b30; padding: 9px; border-radius: 8px; margin-top: 8px; font-size: 13px; }
+  .err { background: #fdecea; border: 1px solid #f5c2bc; color: #7a1f14; padding: 9px; border-radius: 8px; margin-top: 8px; font-size: 13px; }
+  .muted { color: #888; font-size: 11.5px; margin-top: 5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 5px 3px; border-bottom: 1px solid #eee; }
+  th { color: #666; font-weight: 600; }
+  .cart-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #eee; font-size:13px; }
+  .cart-row button { background:#fdecea; border:1px solid #f5c2bc; color:#7a1f14; border-radius:6px; padding:3px 8px; font-size:11px; }
+  .badge { display:inline-block; background:#eef2ff; color:#2563eb; border-radius:6px; padding:2px 6px; font-size:11px; margin-left:6px; }
+  .row2 { display:flex; gap:8px; }
+  .row2 > div { flex:1; }
+  #reader { width: 100%; border-radius: 8px; overflow: hidden; margin-top: 8px; }
+  details summary { cursor: pointer; font-size: 12.5px; color: #2563eb; font-weight: 600; margin-top: 6px; }
+</style>
+
+<div class="app" id="app">
+  <h1>Скан партий — приход / отгрузка / инвентаризация</h1>
+
+  <details>
+    <summary>⚙ Настройки (имя, склад, синхронизация с Google Таблицей)</summary>
+    <div class="card">
+      <label class="lbl">Ваше имя (запомнится на этом телефоне)</label>
+      <input type="text" id="userName" placeholder="Кто заполняет" />
+      <label class="lbl">Ваш склад / место</label>
+      <input type="text" id="warehouseName" placeholder="Например: СГП завод / Регион-1" />
+      <label class="lbl">Ссылка Google Apps Script (для авто-отправки в таблицу)</label>
+      <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec" />
+      <div class="muted">Вставьте один раз — дальше каждый проведённый документ будет сам улетать строкой в Google Таблицу.</div>
+    </div>
+  </details>
+
+  <div class="modes">
+    <button class="mode-btn active" data-mode="in">Приход</button>
+    <button class="mode-btn" data-mode="out">Отгрузка</button>
+    <button class="mode-btn" data-mode="check">Инвентаризация</button>
+  </div>
+
+  <div class="card">
+    <div id="fromToBlock" class="row2">
+      <div>
+        <label class="lbl" id="fromLabel">Откуда</label>
+        <input type="text" id="fromInput" placeholder="Например: Цех / СГП" />
+      </div>
+      <div>
+        <label class="lbl" id="toLabel">Куда</label>
+        <input type="text" id="toInput" placeholder="Например: Регион-1" />
+      </div>
+    </div>
+
+    <button class="btn" id="scanBtn">📷 Сканировать штрих-код</button>
+    <div id="reader" style="display:none;"></div>
+
+    <label class="lbl">Код с этикетки (партия-дата), например 128-14.05.2026</label>
+    <input type="text" id="codeInput" placeholder="128-14.05.2026" />
+
+    <label class="lbl" id="qtyLabel">Количество, шт</label>
+    <input type="number" id="qtyInput" placeholder="Количество" />
+
+    <button class="btn" id="addBtn">➕ Добавить в список</button>
+    <div id="scanMsg"></div>
+  </div>
+
+  <div class="card" id="cartCard" style="display:none;">
+    <b style="font-size:13px;">Текущий документ <span class="badge" id="cartCount">0</span></b>
+    <div id="cartList"></div>
+    <button class="btn" id="commitBtn">✅ Провести весь список</button>
+    <button class="btn secondary" id="clearCartBtn">Очистить список</button>
+  </div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <b style="font-size:13px;">Остатки по всем складам</b>
+      <div>
+        <button class="btn small secondary" id="exportBtn">⬇ CSV</button>
+        <button class="btn small secondary" id="refreshBtn">Обновить</button>
+      </div>
+    </div>
+    <div id="stockTable" class="muted">Загрузка…</div>
+  </div>
+</div>
+
+<script>
+let currentMode = "in";
+let cart = [];
+let html5QrCode = null;
+
+(async () => {
+  try { const r = await window.storage.get("my_user_name", false); if (r) document.getElementById("userName").value = r.value; } catch (e) {}
+  try { const r = await window.storage.get("my_warehouse_name", false); if (r) document.getElementById("warehouseName").value = r.value; } catch (e) {}
+  try { const r = await window.storage.get("my_script_url", false); if (r) document.getElementById("scriptUrl").value = r.value; } catch (e) {}
+  applyModeUI();
+})();
+
+document.getElementById("userName").onchange = async (e) => { await window.storage.set("my_user_name", e.target.value, false); };
+document.getElementById("warehouseName").onchange = async (e) => { await window.storage.set("my_warehouse_name", e.target.value, false); applyModeUI(); };
+document.getElementById("scriptUrl").onchange = async (e) => { await window.storage.set("my_script_url", e.target.value.trim(), false); };
+
+function applyModeUI() {
+  const isCheck = currentMode === "check";
+  document.getElementById("qtyLabel").style.display = isCheck ? "none" : "block";
+  document.getElementById("qtyInput").style.display = isCheck ? "none" : "block";
+  document.getElementById("addBtn").textContent = isCheck ? "🔍 Проверить" : "➕ Добавить в список";
+
+  const fromLabel = document.getElementById("fromLabel"), toLabel = document.getElementById("toLabel");
+  const fromInput = document.getElementById("fromInput"), toInput = document.getElementById("toInput");
+  toInput.style.display = "block"; toLabel.style.display = "block";
+  const wh = document.getElementById("warehouseName").value;
+
+  if (currentMode === "in") {
+    fromLabel.textContent = "Откуда пришло"; toLabel.textContent = "Куда оприходовано";
+    fromInput.placeholder = "Например: Цех / Производство"; toInput.value = wh;
+  } else if (currentMode === "out") {
+    fromLabel.textContent = "Откуда отгружается"; toLabel.textContent = "Куда отправляется";
+    fromInput.value = wh; toInput.placeholder = "Например: Регион-2";
+  } else {
+    fromLabel.textContent = "Где проверялось"; fromInput.value = wh;
+    toInput.style.display = "none"; toLabel.style.display = "none";
+  }
+}
+
+document.querySelectorAll(".mode-btn").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentMode = btn.dataset.mode;
+    document.getElementById("scanMsg").innerHTML = "";
+    applyModeUI();
+  };
+});
+
+document.getElementById("scanBtn").onclick = () => {
+  const readerDiv = document.getElementById("reader");
+  readerDiv.style.display = "block";
+  html5QrCode = new Html5Qrcode("reader");
+  html5QrCode.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: { width: 260, height: 120 },
+      formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128] },
+    (decodedText) => {
+      document.getElementById("codeInput").value = decodedText.replace(/\*/g, "").trim();
+      html5QrCode.stop().then(() => { readerDiv.style.display = "none"; });
+    },
+    () => {}
+  ).catch(err => {
+    document.getElementById("scanMsg").innerHTML = `<div class="err">Камера недоступна: ${err}. Работает только если страница открыта по https (не как локальный файл). Введите код вручную ниже.</div>`;
+  });
+};
+
+function parseCode(text) {
+  const clean = text.replace(/\*/g, "").trim();
+  const m = clean.match(/^(\d+)-(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return null;
+  const [, lot, dd, mm, yyyy] = m;
+  return { lot, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
+}
+
+function stockKey(lot, isoDate) { return `stock:${lot}:${isoDate}`; }
+async function getStock(key) { try { const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; } catch (e) { return null; } }
+async function setStock(key, obj) { await window.storage.set(key, JSON.stringify(obj), true); }
+async function logEvent(entry) {
+  const key = `log:${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+  await window.storage.set(key, JSON.stringify(entry), true);
+}
+
+async function sendToSheet(entry) {
+  const url = document.getElementById("scriptUrl").value.trim();
+  if (!url) return;
+  const opName = { in: "Приход", out: "Отгрузка", check: "Инвентаризация" }[entry.mode] || entry.mode;
+  const payload = {
+    datetime: new Date(entry.ts).toLocaleString("ru-RU"),
+    user: entry.user, operation: opName, from: entry.from, to: entry.to,
+    lot: entry.lot, prodDate: entry.isoDate.split("-").reverse().join("."), qty: entry.qty
+  };
+  try {
+    await fetch(url, { method: "POST", mode: "no-cors", body: JSON.stringify(payload) });
+  } catch (e) { /* офлайн — не блокируем работу приложения */ }
+}
+
+document.getElementById("addBtn").onclick = async () => {
+  const msg = document.getElementById("scanMsg");
+  const raw = document.getElementById("codeInput").value;
+  const p = parseCode(raw);
+  if (!p) { msg.innerHTML = `<div class="err">Формат не распознан. Нужно: ПАРТИЯ-ДД.ММ.ГГГГ, например 128-14.05.2026</div>`; return; }
+
+  if (currentMode === "check") {
+    const rec = await getStock(stockKey(p.lot, p.isoDate));
+    msg.innerHTML = rec ? `<div class="ok">Партия ${p.lot} от ${p.displayDate}: остаток <b>${rec.qty} шт</b></div>`
+                         : `<div class="err">Партия ${p.lot} от ${p.displayDate} в базе не найдена.</div>`;
+    document.getElementById("codeInput").value = "";
+    return;
+  }
+  const qty = parseFloat(document.getElementById("qtyInput").value);
+  if (!qty || qty <= 0) { msg.innerHTML = `<div class="err">Введите количество</div>`; return; }
+  cart.push({ ...p, qty });
+  renderCart();
+  document.getElementById("codeInput").value = "";
+  document.getElementById("qtyInput").value = "";
+  msg.innerHTML = `<div class="ok">Добавлено: партия ${p.lot}, ${p.displayDate}, ${qty} шт</div>`;
+};
+
+function renderCart() {
+  const card = document.getElementById("cartCard"), list = document.getElementById("cartList");
+  document.getElementById("cartCount").textContent = cart.length;
+  if (cart.length === 0) { card.style.display = "none"; return; }
+  card.style.display = "block";
+  list.innerHTML = cart.map((c, i) => `<div class="cart-row"><span>Партия ${c.lot} · ${c.displayDate} · ${c.qty} шт</span><button onclick="window.__removeCartItem(${i})">✕</button></div>`).join("");
+}
+window.__removeCartItem = (i) => { cart.splice(i, 1); renderCart(); };
+document.getElementById("clearCartBtn").onclick = () => { cart = []; renderCart(); };
+
+document.getElementById("commitBtn").onclick = async () => {
+  const user = document.getElementById("userName").value.trim() || "Не указан";
+  const from = document.getElementById("fromInput").value.trim() || "Не указано";
+  const to = document.getElementById("toInput").value.trim() || "Не указано";
+  const msg = document.getElementById("scanMsg");
+  let warnings = "";
+
+  for (const item of cart) {
+    const key = stockKey(item.lot, item.isoDate);
+    const existing = await getStock(key);
+    const before = existing ? existing.qty : 0;
+
+    if (currentMode === "out") {
+      const list = await window.storage.list(`stock:${item.lot}:`, true);
+      if (list && list.keys) {
+        for (const k of list.keys) {
+          if (k === key) continue;
+          const v = await getStock(k);
+          const otherDate = k.split(":")[2];
+          if (v && v.qty > 0 && otherDate < item.isoDate) {
+            warnings += `<div class="warn">⚠ Партия ${item.lot}: есть более старая дата ${otherDate.split("-").reverse().join(".")} с остатком ${v.qty} шт!</div>`;
+          }
+        }
+      }
+    }
+    const delta = currentMode === "in" ? item.qty : -item.qty;
+    const after = before + delta;
+    await setStock(key, { qty: after, updated: Date.now() });
+    const entry = { ts: Date.now(), user, from, to, mode: currentMode, lot: item.lot, isoDate: item.isoDate, qty: item.qty, before, after };
+    await logEvent(entry);
+    await sendToSheet(entry);
+  }
+
+  msg.innerHTML = warnings + `<div class="ok">Документ проведён (${cart.length} партий)</div>`;
+  cart = [];
+  renderCart();
+  loadStockTable();
+};
+
+document.getElementById("refreshBtn").onclick = loadStockTable;
+
+async function loadStockTable() {
+  const el = document.getElementById("stockTable");
+  try {
+    const list = await window.storage.list("stock:", true);
+    if (!list || !list.keys || list.keys.length === 0) { el.innerHTML = "Пока нет данных."; return; }
+    const rows = [];
+    for (const k of list.keys) {
+      const v = await getStock(k);
+      const parts = k.split(":");
+      if (v) rows.push({ lot: parts[1], isoDate: parts[2], qty: v.qty });
+    }
+    rows.sort((a, b) => a.lot.localeCompare(b.lot) || a.isoDate.localeCompare(b.isoDate));
+    let html = "<table><tr><th>Код СКЮ</th><th>Дата произв.</th><th>Остаток</th></tr>";
+    for (const r of rows) html += `<tr><td>${r.lot}</td><td>${r.isoDate.split("-").reverse().join(".")}</td><td>${r.qty}</td></tr>`;
+    html += "</table>";
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = "Не удалось загрузить остатки."; }
+}
+
+const OP_NAMES = { in: "Приход", out: "Отгрузка", check: "Инвентаризация" };
+document.getElementById("exportBtn").onclick = async () => {
+  try {
+    const list = await window.storage.list("log:", true);
+    if (!list || !list.keys || list.keys.length === 0) { alert("Журнал пуст"); return; }
+    let csv = "Дата и время;Пользователь;Операция;Откуда;Куда;Код СКЮ;Дата производства;Количество, шт\n";
+    const rows = [];
+    for (const k of list.keys) { const r = await window.storage.get(k, true); rows.push(JSON.parse(r.value)); }
+    rows.sort((a, b) => a.ts - b.ts);
+    for (const v of rows) {
+      csv += `${new Date(v.ts).toLocaleString("ru-RU")};${v.user};${OP_NAMES[v.mode] || v.mode};${v.from};${v.to};${v.lot};${v.isoDate.split("-").reverse().join(".")};${v.qty}\n`;
+    }
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `журнал_складов_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  } catch (e) { alert("Ошибка выгрузки: " + e); }
+};
+
+loadStockTable();
+</script>
