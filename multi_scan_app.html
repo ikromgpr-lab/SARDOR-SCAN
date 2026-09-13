@@ -159,10 +159,17 @@ document.getElementById("scanBtn").onclick = () => {
   html5QrCode = new Html5Qrcode("reader");
   html5QrCode.start(
     { facingMode: "environment" },
-    { fps: 10, qrbox: { width: 260, height: 120 },
+    { fps: 10, qrbox: { width: 320, height: 130 },
       formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128] },
     (decodedText) => {
-      document.getElementById("codeInput").value = decodedText.replace(/\*/g, "").trim();
+      const clean = decodedText.replace(/\*/g, "").trim();
+      // строгий формат: 3 цифры - ДД.ММ.ГГГГ, например 128-14.12.2026
+      const STRICT_FORMAT = /^\d{3}-\d{2}\.\d{2}\.\d{4}$/;
+      if (!STRICT_FORMAT.test(clean)) {
+        // не тот формат — тихо игнорируем этот кадр и продолжаем сканировать дальше
+        return;
+      }
+      document.getElementById("codeInput").value = clean;
       html5QrCode.stop().then(() => { readerDiv.style.display = "none"; });
     },
     () => {}
