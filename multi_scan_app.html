@@ -242,11 +242,14 @@ document.getElementById("logoutBtn").onclick = () => {
 };
 
 async function apiPost(payload) {
-  const res = await fetch(SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" }, // избегаем CORS-preflight
-    body: JSON.stringify(payload)
-  });
+  // Google Apps Script нередко блокирует POST-запросы с другого сайта (CORS).
+  // Обходим это, отправляя те же данные обычным GET-запросом (как открытие ссылки в браузере).
+  const params = new URLSearchParams();
+  for (const key in payload) {
+    const val = (key === "items") ? JSON.stringify(payload[key]) : payload[key];
+    params.set(key, val);
+  }
+  const res = await fetch(SCRIPT_URL + "?" + params.toString());
   return res.json();
 }
 async function apiGet(params) {
