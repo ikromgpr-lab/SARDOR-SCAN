@@ -48,6 +48,10 @@
     border:1px solid var(--border); border-radius:var(--radius); padding:16px;
     margin-bottom:12px; background:var(--card); box-shadow: var(--shadow);
   }
+  #cartCard { border-left:4px solid var(--mode-color, var(--red)); }
+  .status-pill { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11.5px; font-weight:700; }
+  .status-ok { background:var(--ok-bg, #e6f4ea); color:var(--ok-text, #1e5b30); }
+  .status-bad { background:var(--err-bg, #fdecea); color:var(--err-text, #7a1f14); }
   label.lbl { font-size:12.5px; color:var(--muted); display:block; margin-top:10px; font-weight:600; }
   input[type=number], input[type=text], input[type=password], select {
     width:100%; padding:11px 12px; border-radius:var(--radius-sm); border:1px solid var(--border);
@@ -113,7 +117,7 @@
 
   .modes { display:flex; gap:6px; margin-bottom:6px; }
   .mode-btn { flex:1; padding:10px 4px; border-radius:var(--radius-sm); border:2px solid var(--border); background:#f7f7f7; font-size:12px; font-weight:700; cursor:pointer; color:#333; }
-  .mode-btn.active { border-color:var(--red); background:var(--red); color:#fff; }
+  .mode-btn.active { border-color:var(--mode-color, var(--red)); background:var(--mode-color, var(--red)); color:#fff; }
   #modeHint { margin-bottom:10px; }
 
   #reader { width:100%; border-radius:8px; overflow:hidden; margin-top:8px; }
@@ -154,12 +158,13 @@
   .scan-topbar {
     position:absolute; top:0; left:0; right:0; z-index:2; display:flex; align-items:center; justify-content:space-between;
     padding: max(10px, env(safe-area-inset-top)) 12px 30px; background:linear-gradient(rgba(0,0,0,.6), transparent);
+    border-bottom:3px solid var(--mode-color, var(--red));
   }
   .icon-btn { width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,.18); border:none; color:#fff; font-size:17px; cursor:pointer; }
   .scan-counter-pill { color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.4); padding:6px 12px; border-radius:20px; }
   .scan-sheet { background:#fff; border-radius:18px 18px 0 0; padding:14px 14px calc(env(safe-area-inset-bottom,0px) + 14px); max-height:56dvh; overflow-y:auto; }
   .scan-hint-text { text-align:center; color:var(--muted); font-size:13px; margin:2px 0 10px; }
-  .scan-mode-label { text-align:center; font-size:11.5px; color:var(--red); font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.02em; }
+  .scan-mode-label { text-align:center; font-size:11.5px; color:var(--mode-color, var(--red)); font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.02em; }
   .scan-quick-info { font-size:14px; margin-bottom:2px; }
   .scan-last3 { margin:10px 0 4px; }
   .scan-last-row {
@@ -246,7 +251,7 @@
   </div>
 
   <div class="app-content">
-    <div id="adminNote" class="note hidden">Роль «Админ»: складские операции (сканирование, приём, отгрузка) недоступны. Доступны разделы «Остатки», «История» и «Управление».</div>
+    <div id="adminNote" class="note hidden">Роль «Админ»: в «Операциях» доступны «Откуда»/«Куда» за любой склад (не только за свой) — используйте для исправлений и операций от имени других складов. Также доступны «Остатки» по всем складам, «Сводка» и «Управление».</div>
 
     <!-- ВКЛАДКА: ОПЕРАЦИИ -->
     <div id="tab-ops">
@@ -308,10 +313,10 @@
     <!-- ВКЛАДКА: ОСТАТКИ -->
     <div id="tab-stock" class="hidden">
       <div class="card hidden" id="snapshotFilterCard">
-        <b style="font-size:13px;">Фильтр (для Админа)</b>
+        <b style="font-size:13px;">Фильтр по складам (для Админа)</b>
         <label class="lbl">Склады</label>
         <select id="snapWarehouses" multiple style="height:90px;"></select>
-        <div class="muted">Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано = все склады.</div>
+        <div class="muted">Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано = все склады. Влияет и на «Текущие», и на «Показать за период».</div>
         <div class="row2">
           <div><label class="lbl">С даты</label><input type="date" id="snapDateFrom" /></div>
           <div><label class="lbl">По дату</label><input type="date" id="snapDateTo" /></div>
@@ -335,19 +340,34 @@
       </div>
     </div>
 
-    <!-- ВКЛАДКА: ИСТОРИЯ -->
+    <!-- ВКЛАДКА: СВОДКА -->
     <div id="tab-history" class="hidden">
       <div class="card">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <b style="font-size:13px;">История прихода/отгрузки</b>
+        <b style="font-size:13px;">Сводка операций</b>
+        <div class="hint">«Сканирование» показывает, какие склады уже сдали отчёт инвентаризации за выбранную дату (несдавшие — красным сверху). «Оприходование»/«Расход» — список операций за дату.</div>
+        <div class="row2">
           <div>
-            <button class="btn small secondary" id="printHistoryBtn">🖨 Печать</button>
-            <button class="btn small secondary" id="refreshHistoryBtn">Обновить</button>
+            <label class="lbl">Тип операции</label>
+            <select id="summaryOpType">
+              <option value="Сканирование">Сканирование (инвентаризация)</option>
+              <option value="Приход">Оприходование</option>
+              <option value="Расход">Расход (отгрузки)</option>
+            </select>
+          </div>
+          <div>
+            <label class="lbl">Дата</label>
+            <input type="date" id="summaryDate" />
           </div>
         </div>
-        <div class="hint">«Обновить» — заново загрузить список операций с сервера (если что-то не появилось само).</div>
-        <div id="historyTable" class="muted">Загрузка…</div>
+        <div id="summaryWarehousesRow" class="hidden">
+          <label class="lbl">Склады</label>
+          <select id="summaryWarehouses" multiple style="height:90px;"></select>
+          <div class="muted">Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано = все склады.</div>
+        </div>
+        <button class="btn" id="applySummaryBtn">Показать</button>
+        <div class="hint">Показывает данные заново по выбранным фильтрам — если что-то не появилось само.</div>
       </div>
+      <div id="summaryResult"></div>
     </div>
 
     <!-- ВКЛАДКА: АДМИН -->
@@ -386,7 +406,7 @@
     <button class="tab-btn active" data-tab="ops"><span class="ic">🧾</span>Операции</button>
     <button class="tab-btn" data-tab="pending"><span class="ic">📥</span>Входящие <span class="badge" id="pendingBadge">0</span></button>
     <button class="tab-btn" data-tab="stock"><span class="ic">📦</span>Остатки</button>
-    <button class="tab-btn" data-tab="history"><span class="ic">🕘</span>История</button>
+    <button class="tab-btn" data-tab="history"><span class="ic">📊</span>Сводка</button>
     <button class="tab-btn hidden" data-tab="admin" id="adminTabBtn"><span class="ic">⚙️</span>Админ</button>
   </div>
 </div>
@@ -441,7 +461,21 @@ let currentMode = "";
 let cart = [];
 let html5QrCode = null;
 let warehousesList = [];
+let skuList = [];         // [{code,name,group}, ...] — справочник СКЮ с сервера
+let skuCodesSet = null;   // Set нормализованных кодов для быстрой проверки при сканировании
 let scanLocked = false;
+
+// Мягкая проверка: код партии похож на "<код СКЮ>-ДД.ММ.ГГГГ" — сам код
+// теперь может быть не только тремя цифрами (128-14.12.2026), но и текстом
+// (Кекс 4-14.12.2026), как на реальных этикетках. Дополнительно код должен
+// совпасть с одной из позиций справочника СКЮ (загружается при входе) — это
+// сохраняет прежнюю строгость: случайный посторонний штрих-код тихо
+// игнорируется, а не парсится как попало.
+const LABEL_RE = /^(.+)-(\d{2})\.(\d{2})\.(\d{4})$/;
+function isKnownSkuCode(code) {
+  if (!skuCodesSet || skuCodesSet.size === 0) return true; // справочник ещё не загрузился — не блокируем сканирование
+  return skuCodesSet.has(String(code).trim().toLowerCase());
+}
 
 // ---------- вход ----------
 (function restoreSession() {
@@ -518,16 +552,22 @@ async function showMain() {
     warehousesList = r.warehouses || [];
   } catch (e) { warehousesList = []; }
 
+  try {
+    const rs = await apiGet({ action: "skus" });
+    skuList = rs.skus || [];
+    skuCodesSet = new Set(skuList.map(s => String(s.code).trim().toLowerCase()));
+  } catch (e) { skuList = []; skuCodesSet = null; }
+
   setupModes();
   refreshPendingBadge();
   setupSnapshotFilter();
   if (ME.role === "Админ") {
     document.getElementById("adminTabBtn").classList.remove("hidden");
-    document.querySelector('.tab-btn[data-tab="ops"]').classList.add("hidden");
+    // У Админа нет своего фиксированного склада — «Входящие» (уведомления
+    // конкретному складу) ему не нужны, а вот «Операции» теперь доступны
+    // полностью: он может провести приход/отгрузку за любой склад.
     document.querySelector('.tab-btn[data-tab="pending"]').classList.add("hidden");
     document.getElementById("adminNote").classList.remove("hidden");
-    // Админ по умолчанию попадает на вкладку "Остатки", т.к. "Операции" ему не показываются
-    document.querySelector('.tab-btn[data-tab="stock"]').click();
   }
 }
 
@@ -542,29 +582,52 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     });
     if (btn.dataset.tab === "pending") loadPending();
     if (btn.dataset.tab === "stock") loadStock();
-    if (btn.dataset.tab === "history") loadHistory();
+    if (btn.dataset.tab === "history") { setupSummaryTab(); loadSummary(); }
     if (btn.dataset.tab === "admin") { loadUsers(); loadWarehousesAdmin(); }
   };
 });
 
 // ---------- режимы операций (зависят от роли) ----------
 const MODE_HINTS = {
-  in: "«Приход»: товар поступает и оприходуется на ваш склад.",
-  out_sgp: "«Отгрузка в регион»: товар уходит с вашего склада в выбранный региональный склад (появится во «Входящих» у получателя).",
-  out_agent: "«Отгрузка агенту»: товар уходит с вашего склада конечному агенту/точке и списывается с остатков сразу.",
-  check: "«Инвентаризация»: только проверка остатка по партии — ничего не списывается и не добавляется."
+  in: "«Приход»: товар поступает и оприходуется на склад.",
+  out_sgp: "«Отгрузка в регион»: товар уходит на выбранный региональный склад (появится во «Входящих» у получателя).",
+  out_agent: "«Отгрузка агенту»: товар уходит конечному агенту/точке и списывается с остатков сразу.",
+  check: "«Инвентаризация (быстро)»: проверка остатка по одной партии — ничего не списывается и не добавляется.",
+  scan: "«Сканирование (отчёт)»: полная инвентаризация склада — отсканируйте всё, что физически есть, отчёт попадёт в «Сводку». Расчётные остатки не меняются."
 };
+
+// Цвет операции — чтобы приход/отгрузку/сканирование не путать между собой:
+// подсвечивается активная кнопка режима, шапка полноэкранного сканера и
+// карточка текущего документа.
+const MODE_COLORS = {
+  in: "#1e8e3e",        // зелёный — приход
+  out_sgp: "#c8102e",   // красный — отгрузка в регион
+  out_agent: "#e07b00", // оранжевый — отгрузка агенту
+  check: "#6b7280",     // серый — быстрая проверка
+  scan: "#1a73e8"       // синий — сканирование/инвентаризация
+};
+function applyModeColor(mode) {
+  const color = MODE_COLORS[mode] || "var(--red)";
+  [document.getElementById("cartCard"), document.getElementById("scanOverlay"), document.body]
+    .forEach(el => el && el.style.setProperty("--mode-color", color));
+}
 
 function setupModes() {
   const box = document.getElementById("modeButtons");
   box.innerHTML = "";
-  const modes = ME.role === "СГП"
-    ? [["in","Приход"], ["out_sgp","Отгрузка в регион"]]
-    : [["in","Приход"], ["out_agent","Отгрузка агенту"], ["check","Инвентаризация"]];
+  let modes;
+  if (ME.role === "СГП") {
+    modes = [["in","Приход"], ["out_sgp","Отгрузка в регион"], ["scan","Сканирование"]];
+  } else if (ME.role === "Админ") {
+    modes = [["in","Приход"], ["out_sgp","Отгрузка СГП→регион"], ["out_agent","Отгрузка агенту"], ["scan","Сканирование"]];
+  } else {
+    modes = [["in","Приход"], ["out_agent","Отгрузка агенту"], ["check","Инвентаризация (быстро)"], ["scan","Сканирование"]];
+  }
   modes.forEach(([id, label], i) => {
     const b = document.createElement("button");
     b.className = "mode-btn" + (i === 0 ? " active" : "");
     b.dataset.mode = id;
+    b.style.setProperty("--mode-color", MODE_COLORS[id] || "var(--red)");
     b.textContent = label;
     b.onclick = () => {
       document.querySelectorAll(".mode-btn").forEach(x => x.classList.remove("active"));
@@ -580,7 +643,13 @@ function setupModes() {
   applyModeUI();
 }
 
+function warehouseOptions(includeShop) {
+  return (includeShop ? `<option value="Цех">Цех</option>` : "") +
+    warehousesList.map(w => `<option value="${w}">${w}</option>`).join("");
+}
+
 function applyModeUI() {
+  const isAdmin = ME.role === "Админ";
   const fromLabel = document.getElementById("fromLabel"), toLabel = document.getElementById("toLabel");
   const fromInput = document.getElementById("fromInput"), toInput = document.getElementById("toInput");
   const fromSelect = document.getElementById("fromSelect"), toSelect = document.getElementById("toSelect");
@@ -592,6 +661,7 @@ function applyModeUI() {
   document.getElementById("qtyInput").style.display = "block";
   document.getElementById("addBtn").textContent = "➕ Добавить в список";
   document.getElementById("modeHint").textContent = MODE_HINTS[currentMode] || "";
+  applyModeColor(currentMode);
 
   if (currentMode === "in") {
     fromLabel.textContent = "Откуда пришло";
@@ -599,26 +669,56 @@ function applyModeUI() {
     fromSelect.style.display = "block"; fromInput.style.display = "none";
     fromSelect.innerHTML = `<option value="Цех">Цех (по умолчанию)</option>` +
       warehousesList.filter(w => w !== ME.warehouse).map(w => `<option value="${w}">${w}</option>`).join("");
-    toInput.value = ME.warehouse; toInput.disabled = true;
+    if (isAdmin) {
+      toSelect.style.display = "block"; toInput.style.display = "none";
+      toSelect.innerHTML = `<option value="">— выберите склад —</option>` + warehouseOptions(false);
+    } else {
+      toInput.value = ME.warehouse; toInput.disabled = true;
+    }
   } else if (currentMode === "out_sgp") {
-    fromLabel.textContent = "Откуда (не меняется)";
-    fromInput.value = ME.warehouse; fromInput.disabled = true;
     toLabel.textContent = "Куда отправляется *";
     toSelect.style.display = "block"; toInput.style.display = "none";
-    toSelect.innerHTML = `<option value="">— выберите склад —</option>` + warehousesList.map(w => `<option value="${w}">${w}</option>`).join("");
+    toSelect.innerHTML = `<option value="">— выберите склад —</option>` + warehousesList.filter(w => w !== "СГП").map(w => `<option value="${w}">${w}</option>`).join("");
+    if (isAdmin) {
+      fromLabel.textContent = "Откуда отправляется";
+      fromSelect.style.display = "block"; fromInput.style.display = "none";
+      fromSelect.innerHTML = `<option value="СГП" selected>СГП</option>` + warehouseOptions(false);
+    } else {
+      fromLabel.textContent = "Откуда (не меняется)";
+      fromInput.value = ME.warehouse; fromInput.disabled = true;
+    }
   } else if (currentMode === "out_agent") {
-    fromLabel.textContent = "Откуда (не меняется)";
-    fromInput.value = ME.warehouse; fromInput.disabled = true;
     toLabel.textContent = "Кому (агент) *";
     toInput.value = ""; toInput.placeholder = "Имя агента / точки";
+    if (isAdmin) {
+      fromLabel.textContent = "Откуда отправляется";
+      fromSelect.style.display = "block"; fromInput.style.display = "none";
+      fromSelect.innerHTML = `<option value="">— выберите склад —</option>` + warehouseOptions(false);
+    } else {
+      fromLabel.textContent = "Откуда (не меняется)";
+      fromInput.value = ME.warehouse; fromInput.disabled = true;
+    }
   } else if (currentMode === "check") {
     fromLabel.textContent = "Где проверяется";
     fromInput.value = ME.warehouse; fromInput.disabled = true;
     toLabel.textContent = ""; toInput.style.display = "none"; toLabel.style.display = "none";
     qtyRow.style.display = "none"; document.getElementById("qtyInput").style.display = "none";
     document.getElementById("addBtn").textContent = "🔍 Проверить";
+  } else if (currentMode === "scan") {
+    toLabel.textContent = ""; toInput.style.display = "none"; toLabel.style.display = "none";
+    if (isAdmin) {
+      fromLabel.textContent = "Какой склад сканируем";
+      fromSelect.style.display = "block"; fromInput.style.display = "none";
+      fromSelect.innerHTML = `<option value="">— выберите склад —</option>` + warehouseOptions(false);
+      fromSelect.onchange = () => { toInput.value = fromSelect.value; updateCommitState(); };
+    } else {
+      fromLabel.textContent = "Склад, который сканируется";
+      fromInput.value = ME.warehouse; fromInput.disabled = true;
+      toInput.value = ME.warehouse;
+    }
+    document.getElementById("addBtn").textContent = "➕ Добавить в отчёт";
   }
-  if (currentMode !== "check") toLabel.style.display = "block";
+  if (currentMode !== "check" && currentMode !== "scan") toLabel.style.display = "block";
   updateCommitState();
 }
 
@@ -633,12 +733,17 @@ function getTo() {
   return document.getElementById("toInput").value.trim();
 }
 
-// ---------- разбор кода этикетки (логика не изменена) ----------
+// ---------- разбор кода этикетки ----------
+// Формат стал гибче: код СКЮ теперь не только 3 цифры (128-...), но и текст
+// (Кекс 4-...), как на реальных этикетках — а строгость (не реагировать на
+// случайные штрих-коды) обеспечивает проверка по справочнику СКЮ ниже.
 function parseCode(text) {
   const clean = text.replace(/\*/g, "").trim();
-  const m = clean.match(/^(\d{3})-(\d{2})\.(\d{2})\.(\d{4})$/);
+  const m = clean.match(LABEL_RE);
   if (!m) return null;
-  const [, lot, dd, mm, yyyy] = m;
+  const [, lotRaw, dd, mm, yyyy] = m;
+  const lot = lotRaw.trim();
+  if (!isKnownSkuCode(lot)) return null;
   return { lot, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
 }
 function checkOldDate(code) {
@@ -657,7 +762,7 @@ document.getElementById("codeInput").addEventListener("change", (e) => checkOldD
 document.getElementById("addBtn").onclick = async () => {
   const msg = document.getElementById("scanMsg");
   const p = parseCode(document.getElementById("codeInput").value);
-  if (!p) { msg.innerHTML = `<div class="err">Формат не распознан. Нужно: 128-14.12.2026</div>`; return; }
+  if (!p) { msg.innerHTML = `<div class="err">Формат не распознан. Нужно: код СКЮ - дата производства, например 128-14.12.2026 или Кекс 4-14.12.2026 (код должен быть известным СКЮ)</div>`; return; }
 
   if (currentMode === "check") {
     try {
@@ -712,7 +817,7 @@ document.getElementById("toInput").addEventListener("input", updateCommitState);
 document.getElementById("commitBtn").onclick = async () => {
   const from = getFrom(), to = getTo();
   const msg = document.getElementById("scanMsg");
-  const opName = { in: "Приход", out_sgp: "Отгрузка (СГП)", out_agent: "Отгрузка агенту" }[currentMode];
+  const opName = { in: "Приход", out_sgp: "Отгрузка (СГП)", out_agent: "Отгрузка агенту", scan: "Сканирование" }[currentMode];
   const btn = document.getElementById("commitBtn");
   btn.disabled = true;
   try {
@@ -720,7 +825,9 @@ document.getElementById("commitBtn").onclick = async () => {
       action: "commit", user: ME.login, role: ME.role, operation: opName,
       from, to, items: cart.map(c => ({ lot: c.lot, prodDate: c.isoDate, qty: c.qty }))
     });
-    msg.innerHTML = `<div class="ok">Документ проведён (${cart.length} партий). Данные отправлены в Google Таблицу.</div>`;
+    msg.innerHTML = currentMode === "scan"
+      ? `<div class="ok">Отчёт сканирования отправлен (${cart.length} позиций). Появится в «Сводке».</div>`
+      : `<div class="ok">Документ проведён (${cart.length} партий). Данные отправлены в Google Таблицу.</div>`;
     cart = []; renderCart();
   } catch (e) {
     msg.innerHTML = `<div class="err">Не удалось отправить на сервер: ${e}. Проверьте подключение к интернету и попробуйте снова — список позиций сохранён.</div>`;
@@ -740,8 +847,9 @@ document.getElementById("qeAddBtn").onclick = confirmQuickEntry;
 function openScanner() {
   const overlay = document.getElementById("scanOverlay");
   overlay.classList.remove("hidden");
+  applyModeColor(currentMode);
   document.getElementById("scanModeLabel").textContent =
-    { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Инвентаризация" }[currentMode] || "";
+    { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Инвентаризация", scan: "Сканирование (отчёт)" }[currentMode] || "";
   document.getElementById("scanCounter").textContent = cart.length;
   scanLocked = false;
   resetScanPanels();
@@ -780,14 +888,12 @@ function setupTorchButton() {
   } catch (e) { /* фонарик недоступен — не критично */ }
 }
 
-// Логика распознавания и валидации формата кода НЕ изменена — тот же html5-qrcode,
-// та же конфигурация (fps/qrbox/formatsToSupport) и то же регулярное выражение.
+// Распознавание камерой (html5-qrcode, тот же fps/qrbox/formatsToSupport) не
+// менялось — здесь только сама проверка формата кода стала гибче (см. parseCode).
 function onScanDecoded(decodedText) {
   if (scanLocked) return; // пока открыта карточка ввода количества — новые кадры игнорируем
-  const clean = decodedText.replace(/\*/g, "").trim();
-  if (!/^\d{3}-\d{2}\.\d{2}\.\d{4}$/.test(clean)) return; // не тот формат — игнорируем кадр
-  const p = parseCode(clean);
-  if (!p) return;
+  const p = parseCode(decodedText);
+  if (!p) return; // не тот формат или код не из справочника СКЮ — тихо игнорируем кадр
   scanLocked = true;
   if (currentMode === "check") showCheckResult(p);
   else showQuickEntry(p);
@@ -901,12 +1007,21 @@ window.__receive = async (id) => {
 // ---------- остатки ----------
 document.getElementById("refreshStockBtn").onclick = loadStock;
 let lastStockRows = [];
+function selectedStockWarehouses() {
+  if (ME.role !== "Админ") return null;
+  const sel = document.getElementById("snapWarehouses");
+  const chosen = Array.from(sel.selectedOptions).map(o => o.value);
+  return chosen.length ? chosen : null;
+}
 async function loadStock() {
   const el = document.getElementById("stockTable");
   el.innerHTML = "Загрузка…";
-  document.getElementById("stockScopeLabel").textContent = ME.role === "Админ" ? "— текущие, по всем складам" : "— текущие, по вашему складу (" + ME.warehouse + ")";
+  const chosen = selectedStockWarehouses();
+  document.getElementById("stockScopeLabel").textContent = ME.role === "Админ"
+    ? ("— текущие, " + (chosen ? "склады: " + chosen.join(", ") : "по всем складам"))
+    : "— текущие, по вашему складу (" + ME.warehouse + ")";
   try {
-    const r = await apiGet({ action: "stock" });
+    const r = await apiGet({ action: "stock", warehouses: chosen ? chosen.join(",") : "ALL" });
     let rows = (r.stock || []).filter(s => s.qty !== 0);
     if (ME.role !== "Админ") rows = rows.filter(s => s.warehouse === ME.warehouse);
     rows.sort((a,b) => a.warehouse.localeCompare(b.warehouse) || a.lot.localeCompare(b.lot) || a.prodDate.localeCompare(b.prodDate));
@@ -918,8 +1033,13 @@ async function loadStock() {
 function renderStockTable(rows, showWarehouseCol, showDateCol) {
   const el = document.getElementById("stockTable");
   if (rows.length === 0) { el.innerHTML = "Нет данных за выбранный период/фильтр."; return; }
-  let html = "<table><tr>" + (showDateCol ? "<th>Дата снимка</th>" : "") + (showWarehouseCol ? "<th>Склад</th>" : "") + "<th>Код СКЮ</th><th>Дата произв.</th><th>Остаток</th></tr>";
-  rows.forEach(r => html += `<tr>${showDateCol ? "<td>"+r.snapDate.split("-").reverse().join(".")+"</td>" : ""}${showWarehouseCol ? "<td>"+r.warehouse+"</td>" : ""}<td>${r.lot}</td><td>${r.prodDate.split("-").reverse().join(".")}</td><td>${r.qty}</td></tr>`);
+  let html = "<table><tr>" + (showDateCol ? "<th>Дата снимка</th>" : "") + (showWarehouseCol ? "<th>Склад</th>" : "") + "<th>Код СКЮ</th><th>Дата произв.</th><th>Остаток</th><th>Страховочный срок</th></tr>";
+  rows.forEach(r => {
+    const statusCell = r.status
+      ? `<span class="status-pill ${r.status === "Превышен" ? "status-bad" : "status-ok"}">${r.status}</span>`
+      : `<span class="muted">—</span>`;
+    html += `<tr title="${(r.skuName || "").replace(/"/g,'&quot;')}">${showDateCol ? "<td>"+r.snapDate.split("-").reverse().join(".")+"</td>" : ""}${showWarehouseCol ? "<td>"+r.warehouse+"</td>" : ""}<td>${r.lot}</td><td>${r.prodDate.split("-").reverse().join(".")}</td><td>${r.qty}</td><td>${statusCell}</td></tr>`;
+  });
   html += "</table>";
   el.innerHTML = html;
 }
@@ -929,6 +1049,7 @@ async function setupSnapshotFilter() {
   document.getElementById("snapshotFilterCard").classList.remove("hidden");
   const sel = document.getElementById("snapWarehouses");
   sel.innerHTML = warehousesList.map(w => `<option value="${w}">${w}</option>`).join("");
+  sel.onchange = loadStock;
   const today = new Date().toISOString().slice(0,10);
   document.getElementById("snapDateFrom").value = today;
   document.getElementById("snapDateTo").value = today;
@@ -961,9 +1082,9 @@ document.getElementById("exportStockBtn").onclick = () => {
   if (lastStockRows.length === 0) { alert("Нет данных для выгрузки"); return; }
   const showWh = ME.role === "Админ";
   const showDate = lastStockRows[0] && lastStockRows[0].snapDate !== undefined;
-  let csv = (showDate ? "Дата снимка;" : "") + (showWh ? "Склад;" : "") + "Код СКЮ;Дата производства;Остаток, шт\n";
+  let csv = (showDate ? "Дата снимка;" : "") + (showWh ? "Склад;" : "") + "Код СКЮ;Наименование;Дата производства;Остаток, шт;Страховочный срок\n";
   lastStockRows.forEach(r => {
-    csv += (showDate ? r.snapDate.split("-").reverse().join(".")+";" : "") + (showWh ? r.warehouse+";" : "") + `${r.lot};${r.prodDate.split("-").reverse().join(".")};${r.qty}\n`;
+    csv += (showDate ? r.snapDate.split("-").reverse().join(".")+";" : "") + (showWh ? r.warehouse+";" : "") + `${r.lot};${(r.skuName||"").replace(/;/g,",")};${r.prodDate.split("-").reverse().join(".")};${r.qty};${r.status||""}\n`;
   });
   downloadCsv(csv, "остатки_" + new Date().toISOString().slice(0,10) + ".csv");
 };
@@ -1031,21 +1152,112 @@ window.__delWh = async (name) => {
   loadWarehousesAdmin();
 };
 
-// ---------- история ----------
-document.getElementById("refreshHistoryBtn").onclick = loadHistory;
-document.getElementById("printHistoryBtn").onclick = () => window.print();
-async function loadHistory() {
-  const el = document.getElementById("historyTable");
+// ---------- сводка ----------
+function setupSummaryTab() {
+  if (!document.getElementById("summaryDate").value) {
+    document.getElementById("summaryDate").value = new Date().toISOString().slice(0,10);
+  }
+  const whRow = document.getElementById("summaryWarehousesRow");
+  if (ME.role === "Админ") {
+    whRow.classList.remove("hidden");
+    const sel = document.getElementById("summaryWarehouses");
+    if (!sel.dataset.filled) { sel.innerHTML = warehousesList.map(w => `<option value="${w}">${w}</option>`).join(""); sel.dataset.filled = "1"; }
+  } else {
+    whRow.classList.add("hidden");
+  }
+}
+document.getElementById("applySummaryBtn").onclick = loadSummary;
+
+async function loadSummary() {
+  const el = document.getElementById("summaryResult");
   el.innerHTML = "Загрузка…";
+  const opType = document.getElementById("summaryOpType").value;
+  const date = document.getElementById("summaryDate").value || new Date().toISOString().slice(0,10);
+  let warehouses;
+  if (ME.role === "Админ") {
+    const sel = document.getElementById("summaryWarehouses");
+    const chosen = Array.from(sel.selectedOptions).map(o => o.value);
+    warehouses = chosen.length ? chosen.join(",") : "ALL";
+  } else {
+    warehouses = ME.warehouse;
+  }
   try {
-    const r = await apiGet({ action: "history", warehouse: ME.warehouse });
-    const rows = r.history || [];
-    if (rows.length === 0) { el.innerHTML = "Пока нет данных."; return; }
-    let html = "<table><tr><th>Дата</th><th>Опер.</th><th>Откуда</th><th>Куда</th><th>СКЮ</th><th>Кол-во</th><th>Статус</th></tr>";
-    rows.forEach(r => html += `<tr><td>${new Date(r.ts).toLocaleDateString("ru-RU")}</td><td>${r.op}</td><td>${r.from}</td><td>${r.to}</td><td>${r.lot}</td><td>${r.qty}</td><td>${r.status||""}</td></tr>`);
-    html += "</table>";
-    el.innerHTML = html;
+    const r = await apiGet({ action: "summary", opType, date, warehouses });
+    renderSummary(r);
   } catch (e) { el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
+}
+
+function ddmmyyyy(iso) { return (iso || "").split("-").reverse().join("."); }
+function statusPill(status) {
+  if (!status) return `<span class="muted">—</span>`;
+  return `<span class="status-pill ${status === "Превышен" ? "status-bad" : "status-ok"}">${status}</span>`;
+}
+
+function renderSummary(r) {
+  const el = document.getElementById("summaryResult");
+  if (r.opType === "Сканирование") {
+    let html = "";
+    if (r.missing && r.missing.length) {
+      html += `<div class="card" style="border-color:var(--err-border); background:var(--err-bg);">
+        <b style="color:var(--err-text);">⚠ Не сдали отчёт за ${ddmmyyyy(r.date)} (${r.missing.length} из ${r.totalWarehouses}):</b>
+        <div style="margin-top:6px;">${r.missing.map(w => `<span class="status-pill status-bad" style="margin:2px; display:inline-block;">${w}</span>`).join("")}</div>
+      </div>`;
+    } else {
+      html += `<div class="card" style="border-color:var(--ok-border); background:var(--ok-bg);"><b style="color:var(--ok-text);">✅ Все выбранные склады сдали отчёт за ${ddmmyyyy(r.date)}</b></div>`;
+    }
+    window.__summarySubmitted = r.submitted || [];
+    if (!r.submitted || r.submitted.length === 0) {
+      html += `<div class="muted" style="padding:6px 2px;">Пока нет отправленных отчётов сканирования за эту дату.</div>`;
+    } else {
+      r.submitted.forEach((s, idx) => {
+        const lastAt = s.lastAt ? new Date(s.lastAt).toLocaleString("ru-RU") : "—";
+        html += `<div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="window.__toggleSummaryDetail(${idx})">
+            <b>${s.warehouse}</b><span class="muted">детали ▾</span>
+          </div>
+          <div class="muted" style="margin-top:4px;">Сканирований: ${s.scanSessions} · Позиций: ${s.blocks} · Нарушений: <b style="color:${s.violations ? "var(--err-text)" : "inherit"}">${s.violations}</b> · Последний скан: ${lastAt}</div>
+          <div id="summaryDetail${idx}" class="hidden" style="margin-top:8px;">
+            <table><tr><th>Пользователь</th><th>Код СКЮ</th><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th></tr>
+            ${s.items.map(it => `<tr><td>${it.user}</td><td>${it.lot}</td><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td></tr>`).join("")}
+            </table>
+            <button class="btn small secondary" style="margin-top:8px;" onclick="window.__exportSummaryDetail(${idx})">⬇ Excel</button>
+          </div>
+        </div>`;
+      });
+    }
+    el.innerHTML = html;
+  } else {
+    const items = r.items || [];
+    window.__summaryFlatItems = items;
+    if (!items.length) {
+      el.innerHTML = `<div class="muted" style="padding:6px 2px;">Нет операций «${r.opType === "Расход" ? "отгрузки" : "оприходования"}» за ${ddmmyyyy(r.date)}.</div>`;
+      return;
+    }
+    let html = `<div class="card"><div style="display:flex; justify-content:space-between; align-items:center;"><b>Операции за ${ddmmyyyy(r.date)}</b><button class="btn small secondary" onclick="window.__exportSummaryFlat()">⬇ Excel</button></div>
+      <table><tr><th>Время</th><th>Пользователь</th><th>Операция</th><th>Откуда</th><th>Куда</th><th>Код СКЮ</th><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th></tr>
+      ${items.map(it => `<tr><td>${new Date(it.ts).toLocaleTimeString("ru-RU")}</td><td>${it.user}</td><td>${it.op}</td><td>${it.from}</td><td>${it.to}</td><td>${it.lot}</td><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td></tr>`).join("")}
+      </table></div>`;
+    el.innerHTML = html;
+  }
+}
+
+window.__toggleSummaryDetail = (idx) => {
+  document.getElementById("summaryDetail" + idx).classList.toggle("hidden");
+};
+
+window.__exportSummaryDetail = (idx) => {
+  const s = window.__summarySubmitted[idx];
+  if (!s) return;
+  let csv = "Пользователь;Код СКЮ;Наименование;Дата производства;Количество;Статус\n";
+  s.items.forEach(it => csv += `${it.user};${it.lot};${(it.skuName||"").replace(/;/g,",")};${ddmmyyyy(it.prodDate)};${it.qty};${it.status||""}\n`);
+  downloadCsv(csv, `сканирование_${s.warehouse}_${document.getElementById("summaryDate").value}.csv`);
+};
+
+window.__exportSummaryFlat = () => {
+  const items = window.__summaryFlatItems || [];
+  let csv = "Операция;Откуда;Куда;Время;Код СКЮ;Наименование;Дата производства;Количество;Пользователь;Статус\n";
+  items.forEach(it => csv += `${it.op};${it.from};${it.to};${new Date(it.ts).toLocaleString("ru-RU")};${it.lot};${(it.skuName||"").replace(/;/g,",")};${ddmmyyyy(it.prodDate)};${it.qty};${it.user};${it.status||""}\n`);
+  downloadCsv(csv, `сводка_${document.getElementById("summaryOpType").value}_${document.getElementById("summaryDate").value}.csv`);
 }
 </script>
 </body>
