@@ -95,8 +95,12 @@
   .row2 > div { flex:1; }
 
   /* ---------- ГЛАВНЫЙ ЭКРАН ---------- */
-  #mainScreen { min-height:100dvh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px); }
+  #mainScreen {
+    min-height:100dvh; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);
+    display:flex; flex-direction:column;
+  }
   .topbar {
+    order:0;
     position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:10px;
     padding: max(10px, env(safe-area-inset-top)) 14px 10px; background:#fff; border-bottom:1px solid var(--border);
   }
@@ -105,7 +109,7 @@
   .topbar .who .wh-name { font-size:14px; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .topbar .who .role { font-size:11px; }
   #logoutBtn { width:auto; margin:0; padding:8px 12px; font-size:12.5px; }
-  .app-content { max-width:640px; margin:0 auto; padding:14px; }
+  .app-content { order:2; flex:1; width:100%; max-width:640px; margin:0 auto; padding:14px; }
 
   .modes { display:flex; gap:6px; margin-bottom:6px; }
   .mode-btn { flex:1; padding:10px 4px; border-radius:var(--radius-sm); border:2px solid var(--border); background:#f7f7f7; font-size:12px; font-weight:700; cursor:pointer; color:#333; }
@@ -114,8 +118,9 @@
 
   #reader { width:100%; border-radius:8px; overflow:hidden; margin-top:8px; }
 
-  /* нижняя навигация */
+  /* нижняя навигация (на мобильном — плавающая внизу; на широких экранах — обычная строка под шапкой, см. медиа-запрос ниже) */
   .bottom-nav {
+    order:1;
     position:fixed; left:0; right:0; bottom:0; z-index:60;
     display:flex; background:#fff; border-top:1px solid var(--border);
     padding-bottom: env(safe-area-inset-bottom);
@@ -163,6 +168,40 @@
     .app-content { max-width: 760px; }
     .card { padding:20px; }
   }
+
+  /* ---------- ПЛАНШЕТ / ДЕСКТОП ---------- */
+  @media (min-width: 900px) {
+    #mainScreen { padding-bottom: 0; }
+    .app-content { max-width: 1080px; padding: 20px 24px 32px; }
+
+    /* нижняя навигация становится обычной горизонтальной строкой под шапкой,
+       а не плавающей панелью внизу экрана */
+    .bottom-nav {
+      position: static; box-shadow:none; border-top:none; border-bottom:1px solid var(--border);
+      padding-bottom:0; justify-content:center; gap:4px;
+    }
+    .tab-btn {
+      flex:0 0 auto; flex-direction:row; gap:7px; padding:13px 20px; font-size:13px;
+    }
+    .tab-btn .ic { font-size:16px; }
+
+    /* Операции: форма слева, текущий документ справа — фиксирован при скролле */
+    #tab-ops { display:flex; align-items:flex-start; gap:20px; }
+    .ops-form { flex:1 1 auto; min-width:0; }
+    #cartCard { flex:0 0 360px; margin-top:0; position:sticky; top:20px; }
+
+    /* Остатки/История/Админ — читабельная ширина колонок вместо растягивания на всю ширину */
+    #tab-stock .card, #tab-history .card, #tab-admin .card, #tab-pending .card { max-width:900px; }
+
+    /* Полноэкранный сканер: на широком экране камера слева, панель ввода — фиксированная колонка справа */
+    .scan-overlay { flex-direction: row; }
+    .scan-video-wrap { flex:1; }
+    .scan-sheet {
+      width:400px; max-width:400px; max-height:none; height:100%; flex-shrink:0;
+      border-radius:0; box-shadow:-6px 0 18px rgba(0,0,0,.10); overflow-y:auto;
+    }
+    .viewfinder { top:50%; left:50%; width:56%; max-width:440px; height:170px; }
+  }
 </style>
 </head>
 <body>
@@ -207,6 +246,7 @@
 
     <!-- ВКЛАДКА: ОПЕРАЦИИ -->
     <div id="tab-ops">
+     <div class="ops-form">
       <div class="modes" id="modeButtons"></div>
       <div id="modeHint" class="hint"></div>
 
@@ -239,6 +279,7 @@
         <div class="hint">Добавляет позицию (партия + дата + количество) во временный список ниже. На сервер пока ничего не отправляется.</div>
         <div id="scanMsg"></div>
       </div>
+     </div>
 
       <div class="card hidden" id="cartCard">
         <b style="font-size:13px;">Текущий документ <span class="badge" id="cartCount">0</span></b>
