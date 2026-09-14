@@ -48,7 +48,21 @@
     border:1px solid var(--border); border-radius:var(--radius); padding:16px;
     margin-bottom:12px; background:var(--card); box-shadow: var(--shadow);
   }
-  #cartCard { border-left:4px solid var(--mode-color, var(--red)); }
+  #cartCard { border-left:5px solid var(--mode-color, var(--red)); }
+  .mode-banner {
+    display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:var(--radius-sm);
+    font-weight:800; font-size:13.5px; letter-spacing:.02em; margin:2px 0 12px; color:#fff;
+    background:var(--mode-color, var(--red));
+  }
+  #opsFieldsCard { border-left:5px solid var(--mode-color, var(--red)); }
+  .wh-checklist {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:2px 8px;
+    max-height:180px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);
+    padding:6px 8px; margin-top:4px; background:var(--bg);
+  }
+  .wh-check-row { display:flex; align-items:center; gap:7px; padding:6px 2px; font-size:13px; cursor:pointer; user-select:none; }
+  .wh-check-row input { width:auto; margin:0; accent-color:var(--red); flex-shrink:0; }
+  .link-btn { background:none; border:none; color:var(--red); font-size:12px; font-weight:600; cursor:pointer; padding:2px; text-decoration:underline; }
   .status-pill { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11.5px; font-weight:700; }
   .status-ok { background:var(--ok-bg, #e6f4ea); color:var(--ok-text, #1e5b30); }
   .status-bad { background:var(--err-bg, #fdecea); color:var(--err-text, #7a1f14); }
@@ -62,8 +76,8 @@
   .pass-wrap { position:relative; }
   .pass-wrap input { padding-right:42px; }
   .eye-btn {
-    position:absolute; right:4px; top:29px; width:32px; height:32px; border:none; background:none;
-    font-size:16px; color:var(--muted); cursor:pointer; border-radius:50%;
+    position:absolute; right:4px; top:50%; transform:translateY(-50%); width:32px; height:32px; border:none; background:none;
+    font-size:16px; color:var(--muted); cursor:pointer; border-radius:50%; display:flex; align-items:center; justify-content:center;
   }
   .remember-row {
     display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; color:var(--ink); cursor:pointer;
@@ -164,6 +178,7 @@
   .scan-counter-pill { color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.4); padding:6px 12px; border-radius:20px; }
   .scan-sheet { background:#fff; border-radius:18px 18px 0 0; padding:14px 14px calc(env(safe-area-inset-bottom,0px) + 14px); max-height:56dvh; overflow-y:auto; }
   .scan-hint-text { text-align:center; color:var(--muted); font-size:13px; margin:2px 0 10px; }
+  .scan-hint-text.warn-flash { color:var(--err-text, #a11d2e); font-weight:700; }
   .scan-mode-label { text-align:center; font-size:11.5px; color:var(--mode-color, var(--red)); font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.02em; }
   .scan-quick-info { font-size:14px; margin-bottom:2px; }
   .scan-last3 { margin:10px 0 4px; }
@@ -257,9 +272,10 @@
     <div id="tab-ops">
      <div class="ops-form">
       <div class="modes" id="modeButtons"></div>
+      <div class="mode-banner" id="modeBanner"></div>
       <div id="modeHint" class="hint"></div>
 
-      <div class="card">
+      <div class="card" id="opsFieldsCard">
         <div class="row2">
           <div>
             <label class="lbl" id="fromLabel">Откуда</label>
@@ -276,16 +292,19 @@
         <button class="btn" id="scanBtn">📷 Сканировать штрих-код</button>
         <div class="hint">Открывает камеру во весь экран для чтения штрих-кода этикетки. Можно отсканировать сразу несколько партий подряд.</div>
 
-        <label class="lbl">Код с этикетки (партия-дата)</label>
-        <input type="text" id="codeInput" placeholder="Например: 128-14.12.2026" />
-        <div class="hint">Заполняется автоматически после сканирования, либо введите вручную в формате «партия-ДД.ММ.ГГГГ».</div>
-        <div id="dateWarn"></div>
+        <button type="button" class="btn secondary small" id="toggleManualBtn" style="margin-top:10px; width:100%;">✍️ Ввести код вручную</button>
+        <div id="manualEntryBlock" class="hidden" style="margin-top:4px;">
+          <label class="lbl">Код с этикетки (партия-дата)</label>
+          <input type="text" id="codeInput" placeholder="Например: 128-14.12.2026" />
+          <div class="hint">Формат: «код СКЮ-ДД.ММ.ГГГГ» — используйте, если камера недоступна.</div>
+          <div id="dateWarn"></div>
 
-        <label class="lbl" id="qtyLabel">Количество, шт</label>
-        <input type="number" id="qtyInput" placeholder="Количество" />
+          <label class="lbl" id="qtyLabel">Количество, шт</label>
+          <input type="number" id="qtyInput" placeholder="Количество" />
 
-        <button class="btn" id="addBtn">➕ Добавить в список</button>
-        <div class="hint">Добавляет позицию (партия + дата + количество) во временный список ниже. На сервер пока ничего не отправляется.</div>
+          <button class="btn" id="addBtn">➕ Добавить в список</button>
+          <div class="hint">Добавляет позицию (партия + дата + количество) во временный список ниже. На сервер пока ничего не отправляется.</div>
+        </div>
         <div id="scanMsg"></div>
       </div>
      </div>
@@ -314,9 +333,12 @@
     <div id="tab-stock" class="hidden">
       <div class="card hidden" id="snapshotFilterCard">
         <b style="font-size:13px;">Фильтр по складам (для Админа)</b>
-        <label class="lbl">Склады</label>
-        <select id="snapWarehouses" multiple style="height:90px;"></select>
-        <div class="muted">Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано = все склады. Влияет и на «Текущие», и на «Показать за период».</div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+          <label class="lbl" style="margin-top:10px;">Склады (отметьте нужные)</label>
+          <button type="button" class="link-btn" id="snapWhClearBtn">Сбросить (все склады)</button>
+        </div>
+        <div id="snapWarehouses" class="wh-checklist"></div>
+        <div class="muted">Ничего не отмечено = все склады. Влияет и на «Текущие», и на «Показать за период».</div>
         <div class="row2">
           <div><label class="lbl">С даты</label><input type="date" id="snapDateFrom" /></div>
           <div><label class="lbl">По дату</label><input type="date" id="snapDateTo" /></div>
@@ -344,12 +366,11 @@
     <div id="tab-history" class="hidden">
       <div class="card">
         <b style="font-size:13px;">Сводка операций</b>
-        <div class="hint">«Сканирование» показывает, какие склады уже сдали отчёт инвентаризации за выбранную дату (несдавшие — красным сверху). «Оприходование»/«Расход» — список операций за дату.</div>
+        <div class="hint">Список операций («Оприходование» или «Расход») за выбранную дату и склады.</div>
         <div class="row2">
           <div>
             <label class="lbl">Тип операции</label>
             <select id="summaryOpType">
-              <option value="Сканирование">Сканирование (инвентаризация)</option>
               <option value="Приход">Оприходование</option>
               <option value="Расход">Расход (отгрузки)</option>
             </select>
@@ -360,9 +381,12 @@
           </div>
         </div>
         <div id="summaryWarehousesRow" class="hidden">
-          <label class="lbl">Склады</label>
-          <select id="summaryWarehouses" multiple style="height:90px;"></select>
-          <div class="muted">Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано = все склады.</div>
+          <div style="display:flex; justify-content:space-between; align-items:baseline;">
+            <label class="lbl" style="margin-top:10px;">Склады (отметьте нужные)</label>
+            <button type="button" class="link-btn" id="summaryWhClearBtn">Сбросить (все склады)</button>
+          </div>
+          <div id="summaryWarehouses" class="wh-checklist"></div>
+          <div class="muted">Ничего не отмечено = все склады.</div>
         </div>
         <button class="btn" id="applySummaryBtn">Показать</button>
         <div class="hint">Показывает данные заново по выбранным фильтрам — если что-то не появилось само.</div>
@@ -374,11 +398,13 @@
     <div id="tab-admin" class="hidden">
       <div class="card">
         <b style="font-size:13px;">Пользователи</b>
+        <div class="hint">Список читается прямо из листа «Users» в Google Таблице — правки там (и здесь) видны сразу друг у друга.</div>
         <div id="usersTable" class="muted">Загрузка…</div>
+        <div id="userFormTitle" class="muted" style="margin-top:10px; font-weight:700;">Новый пользователь</div>
         <label class="lbl">Логин</label>
         <input type="text" id="newUserLogin" />
-        <label class="lbl">Пароль</label>
-        <input type="text" id="newUserPass" />
+        <label class="lbl" id="newUserPassLbl">Пароль</label>
+        <input type="text" id="newUserPass" placeholder="" />
         <label class="lbl">Роль</label>
         <select id="newUserRole">
           <option value="СГП">СГП (завсклад СГП)</option>
@@ -386,13 +412,15 @@
           <option value="Админ">Админ</option>
         </select>
         <label class="lbl">Склад (для роли СГП/Регион)</label>
-        <input type="text" id="newUserWarehouse" placeholder="Например: Регион-3" />
+        <input type="text" id="newUserWarehouse" placeholder="Например: Гиссар" />
         <button class="btn" id="addUserBtn">➕ Добавить / обновить пользователя</button>
-        <div class="hint">Если логин уже существует — его пароль, роль и склад будут обновлены.</div>
+        <button class="btn secondary hidden" id="cancelEditUserBtn">Отмена редактирования</button>
+        <div class="hint">Если логин уже существует — его роль и склад будут обновлены; пароль меняется, только если поле «Пароль» заполнено.</div>
         <div id="adminMsg"></div>
       </div>
       <div class="card">
         <b style="font-size:13px;">Список складов (для выпадающих меню)</b>
+        <div class="hint">Тоже читается прямо из листа «Warehouses». «✏️» переименовывает склад — учтите, что в уже записанных операциях (лист «Log») старое название останется как есть, это исторический журнал.</div>
         <div id="warehousesAdminList" class="muted">Загрузка…</div>
         <label class="lbl">Новый склад</label>
         <input type="text" id="newWarehouseName" placeholder="Например: Регион-3" />
@@ -472,6 +500,7 @@ let scanLocked = false;
 // сохраняет прежнюю строгость: случайный посторонний штрих-код тихо
 // игнорируется, а не парсится как попало.
 const LABEL_RE = /^(.+)-(\d{2})\.(\d{2})\.(\d{4})$/;
+const SCAN_HINT_DEFAULT = "Наведите камеру на штрих-код этикетки";
 function isKnownSkuCode(code) {
   if (!skuCodesSet || skuCodesSet.size === 0) return true; // справочник ещё не загрузился — не блокируем сканирование
   return skuCodesSet.has(String(code).trim().toLowerCase());
@@ -592,8 +621,7 @@ const MODE_HINTS = {
   in: "«Приход»: товар поступает и оприходуется на склад.",
   out_sgp: "«Отгрузка в регион»: товар уходит на выбранный региональный склад (появится во «Входящих» у получателя).",
   out_agent: "«Отгрузка агенту»: товар уходит конечному агенту/точке и списывается с остатков сразу.",
-  check: "«Инвентаризация (быстро)»: проверка остатка по одной партии — ничего не списывается и не добавляется.",
-  scan: "«Сканирование (отчёт)»: полная инвентаризация склада — отсканируйте всё, что физически есть, отчёт попадёт в «Сводку». Расчётные остатки не меняются."
+  check: "«Инвентаризация (быстро)»: проверка остатка по одной партии — ничего не списывается и не добавляется."
 };
 
 // Цвет операции — чтобы приход/отгрузку/сканирование не путать между собой:
@@ -603,13 +631,23 @@ const MODE_COLORS = {
   in: "#1e8e3e",        // зелёный — приход
   out_sgp: "#c8102e",   // красный — отгрузка в регион
   out_agent: "#e07b00", // оранжевый — отгрузка агенту
-  check: "#6b7280",     // серый — быстрая проверка
-  scan: "#1a73e8"       // синий — сканирование/инвентаризация
+  check: "#6b7280"      // серый — быстрая проверка
+};
+const MODE_ICONS = { in: "📥", out_sgp: "🚚", out_agent: "📤", check: "🔍" };
+const MODE_BANNER_LABELS = {
+  in: "ПРИХОД — товар поступает на склад",
+  out_sgp: "ОТГРУЗКА В РЕГИОН — товар уходит на другой склад",
+  out_agent: "ОТГРУЗКА АГЕНТУ — товар уходит конечному получателю",
+  check: "БЫСТРАЯ ПРОВЕРКА — остаток по одной партии"
 };
 function applyModeColor(mode) {
   const color = MODE_COLORS[mode] || "var(--red)";
-  [document.getElementById("cartCard"), document.getElementById("scanOverlay"), document.body]
-    .forEach(el => el && el.style.setProperty("--mode-color", color));
+  // --mode-color ставим на <body> — как CSS-переменная она наследуется вниз
+  // по всему дереву (баннер режима, карточка полей, карточка документа,
+  // сканер), поэтому одной установки достаточно для всех цветовых акцентов.
+  document.body.style.setProperty("--mode-color", color);
+  const banner = document.getElementById("modeBanner");
+  if (banner) banner.textContent = (MODE_ICONS[mode] || "") + "  " + (MODE_BANNER_LABELS[mode] || "");
 }
 
 function setupModes() {
@@ -617,11 +655,11 @@ function setupModes() {
   box.innerHTML = "";
   let modes;
   if (ME.role === "СГП") {
-    modes = [["in","Приход"], ["out_sgp","Отгрузка в регион"], ["scan","Сканирование"]];
+    modes = [["in","Приход"], ["out_sgp","Отгрузка в регион"]];
   } else if (ME.role === "Админ") {
-    modes = [["in","Приход"], ["out_sgp","Отгрузка СГП→регион"], ["out_agent","Отгрузка агенту"], ["scan","Сканирование"]];
+    modes = [["in","Приход"], ["out_sgp","Отгрузка СГП→регион"], ["out_agent","Отгрузка агенту"]];
   } else {
-    modes = [["in","Приход"], ["out_agent","Отгрузка агенту"], ["check","Инвентаризация (быстро)"], ["scan","Сканирование"]];
+    modes = [["in","Приход"], ["out_agent","Отгрузка агенту"], ["check","Инвентаризация (быстро)"]];
   }
   modes.forEach(([id, label], i) => {
     const b = document.createElement("button");
@@ -704,21 +742,8 @@ function applyModeUI() {
     toLabel.textContent = ""; toInput.style.display = "none"; toLabel.style.display = "none";
     qtyRow.style.display = "none"; document.getElementById("qtyInput").style.display = "none";
     document.getElementById("addBtn").textContent = "🔍 Проверить";
-  } else if (currentMode === "scan") {
-    toLabel.textContent = ""; toInput.style.display = "none"; toLabel.style.display = "none";
-    if (isAdmin) {
-      fromLabel.textContent = "Какой склад сканируем";
-      fromSelect.style.display = "block"; fromInput.style.display = "none";
-      fromSelect.innerHTML = `<option value="">— выберите склад —</option>` + warehouseOptions(false);
-      fromSelect.onchange = () => { toInput.value = fromSelect.value; updateCommitState(); };
-    } else {
-      fromLabel.textContent = "Склад, который сканируется";
-      fromInput.value = ME.warehouse; fromInput.disabled = true;
-      toInput.value = ME.warehouse;
-    }
-    document.getElementById("addBtn").textContent = "➕ Добавить в отчёт";
   }
-  if (currentMode !== "check" && currentMode !== "scan") toLabel.style.display = "block";
+  if (currentMode !== "check") toLabel.style.display = "block";
   updateCommitState();
 }
 
@@ -746,6 +771,16 @@ function parseCode(text) {
   if (!isKnownSkuCode(lot)) return null;
   return { lot, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
 }
+// Партия с датой производства "в будущем" (относительно фактической даты
+// сканирования) физически невозможна — это либо ошибка сканирования, либо
+// подделка/опечатка на этикетке. Сравниваем по календарной дате (без времени
+// суток), т.к. дата производства хранится без времени.
+function isFutureProdDate(isoDate) {
+  const prod = new Date(isoDate + "T00:00:00");
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return prod.getTime() > today.getTime();
+}
 function checkOldDate(code) {
   const p = parseCode(code);
   const warnBox = document.getElementById("dateWarn");
@@ -763,6 +798,7 @@ document.getElementById("addBtn").onclick = async () => {
   const msg = document.getElementById("scanMsg");
   const p = parseCode(document.getElementById("codeInput").value);
   if (!p) { msg.innerHTML = `<div class="err">Формат не распознан. Нужно: код СКЮ - дата производства, например 128-14.12.2026 или Кекс 4-14.12.2026 (код должен быть известным СКЮ)</div>`; return; }
+  if (isFutureProdDate(p.isoDate)) { msg.innerHTML = `<div class="err">Дата производства ${p.displayDate} ещё не наступила — такая партия не могла существовать. Проверьте этикетку.</div>`; return; }
 
   if (currentMode === "check") {
     try {
@@ -817,7 +853,7 @@ document.getElementById("toInput").addEventListener("input", updateCommitState);
 document.getElementById("commitBtn").onclick = async () => {
   const from = getFrom(), to = getTo();
   const msg = document.getElementById("scanMsg");
-  const opName = { in: "Приход", out_sgp: "Отгрузка (СГП)", out_agent: "Отгрузка агенту", scan: "Сканирование" }[currentMode];
+  const opName = { in: "Приход", out_sgp: "Отгрузка (СГП)", out_agent: "Отгрузка агенту" }[currentMode];
   const btn = document.getElementById("commitBtn");
   btn.disabled = true;
   try {
@@ -825,15 +861,21 @@ document.getElementById("commitBtn").onclick = async () => {
       action: "commit", user: ME.login, role: ME.role, operation: opName,
       from, to, items: cart.map(c => ({ lot: c.lot, prodDate: c.isoDate, qty: c.qty }))
     });
-    msg.innerHTML = currentMode === "scan"
-      ? `<div class="ok">Отчёт сканирования отправлен (${cart.length} позиций). Появится в «Сводке».</div>`
-      : `<div class="ok">Документ проведён (${cart.length} партий). Данные отправлены в Google Таблицу.</div>`;
+    msg.innerHTML = `<div class="ok">Документ проведён (${cart.length} партий). Данные отправлены в Google Таблицу.</div>`;
     cart = []; renderCart();
   } catch (e) {
     msg.innerHTML = `<div class="err">Не удалось отправить на сервер: ${e}. Проверьте подключение к интернету и попробуйте снова — список позиций сохранён.</div>`;
   } finally {
     updateCommitState();
   }
+};
+
+document.getElementById("toggleManualBtn").onclick = () => {
+  const block = document.getElementById("manualEntryBlock");
+  const btn = document.getElementById("toggleManualBtn");
+  const open = block.classList.toggle("hidden") === false;
+  btn.textContent = open ? "✍️ Скрыть ручной ввод" : "✍️ Ввести код вручную";
+  if (open) document.getElementById("codeInput").focus();
 };
 
 // ---------- полноэкранный сканер ----------
@@ -849,17 +891,36 @@ function openScanner() {
   overlay.classList.remove("hidden");
   applyModeColor(currentMode);
   document.getElementById("scanModeLabel").textContent =
-    { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Инвентаризация", scan: "Сканирование (отчёт)" }[currentMode] || "";
+    { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Инвентаризация" }[currentMode] || "";
   document.getElementById("scanCounter").textContent = cart.length;
   scanLocked = false;
+  const hintEl = document.getElementById("scanHintText");
+  hintEl.textContent = SCAN_HINT_DEFAULT;
+  hintEl.classList.remove("warn-flash");
   resetScanPanels();
   renderLast3();
 
   html5QrCode = new Html5Qrcode("reader");
+  // Настройки подобраны для максимальной скорости распознавания:
+  // - fps увеличен с 10 до 15 (чаще анализируем кадры — код ловится быстрее);
+  // - useBarCodeDetectorIfSupported включает встроенный в браузер (Chrome/Android)
+  //   аппаратный декодер штрих-кодов вместо JS-декодера — на поддерживающих
+  //   устройствах это в разы быстрее; на остальных браузерах просто не используется,
+  //   без потери работоспособности;
+  // - disableFlip отключает лишнюю попытку распознать зеркально отражённый кадр
+  //   (не нужна при обычном сканировании с задней камеры) — экономит время на кадр;
+  // - videoConstraints просит у камеры более высокий и стабильный fps потока,
+  //   чтобы библиотеке было из чего чаще выбирать кадры для анализа.
   html5QrCode.start(
     { facingMode: "environment" },
-    { fps: 10, qrbox: { width: 320, height: 130 },
-      formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128] },
+    {
+      fps: 15,
+      qrbox: { width: 320, height: 130 },
+      disableFlip: true,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128],
+      videoConstraints: { facingMode: "environment", frameRate: { ideal: 30, max: 30 } }
+    },
     onScanDecoded,
     () => {}
   ).then(() => {
@@ -888,12 +949,28 @@ function setupTorchButton() {
   } catch (e) { /* фонарик недоступен — не критично */ }
 }
 
-// Распознавание камерой (html5-qrcode, тот же fps/qrbox/formatsToSupport) не
-// менялось — здесь только сама проверка формата кода стала гибче (см. parseCode).
+// Распознавание камерой (html5-qrcode) — скорость настроена в openScanner()
+// (fps/аппаратный декодер/disableFlip); здесь только сама проверка формата
+// кода стала гибче (см. parseCode).
+let futureDateFlashTimer = null;
 function onScanDecoded(decodedText) {
   if (scanLocked) return; // пока открыта карточка ввода количества — новые кадры игнорируем
   const p = parseCode(decodedText);
   if (!p) return; // не тот формат или код не из справочника СКЮ — тихо игнорируем кадр
+  if (isFutureProdDate(p.isoDate)) {
+    // Дата производства ещё не наступила — такой партии не может быть. Не
+    // блокируем сканер карточкой ввода, а на секунду показываем причину
+    // отказа прямо в подсказке и продолжаем сканирование.
+    const hint = document.getElementById("scanHintText");
+    hint.textContent = `⚠ Дата ${p.displayDate} ещё не наступила — код проигнорирован`;
+    hint.classList.add("warn-flash");
+    clearTimeout(futureDateFlashTimer);
+    futureDateFlashTimer = setTimeout(() => {
+      hint.textContent = SCAN_HINT_DEFAULT;
+      hint.classList.remove("warn-flash");
+    }, 2200);
+    return;
+  }
   scanLocked = true;
   if (currentMode === "check") showCheckResult(p);
   else showQuickEntry(p);
@@ -1004,13 +1081,29 @@ window.__receive = async (id) => {
   refreshPendingBadge();
 };
 
+// ---------- чек-лист складов (замена <select multiple> — удобнее на телефоне
+// и позволяет выбрать ровно один склад одним касанием, без Ctrl/Cmd+клик) ----------
+function renderWhChecklist(containerId, onChange) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = warehousesList.map(w => `
+    <label class="wh-check-row"><input type="checkbox" value="${w}" /><span>${w}</span></label>
+  `).join("");
+  if (onChange) el.querySelectorAll("input[type=checkbox]").forEach(cb => cb.addEventListener("change", onChange));
+}
+function getWhChecked(containerId) {
+  const el = document.getElementById(containerId);
+  return Array.from(el.querySelectorAll("input[type=checkbox]:checked")).map(cb => cb.value);
+}
+function clearWhChecklist(containerId) {
+  document.getElementById(containerId).querySelectorAll("input[type=checkbox]").forEach(cb => cb.checked = false);
+}
+
 // ---------- остатки ----------
 document.getElementById("refreshStockBtn").onclick = loadStock;
 let lastStockRows = [];
 function selectedStockWarehouses() {
   if (ME.role !== "Админ") return null;
-  const sel = document.getElementById("snapWarehouses");
-  const chosen = Array.from(sel.selectedOptions).map(o => o.value);
+  const chosen = getWhChecked("snapWarehouses");
   return chosen.length ? chosen : null;
 }
 async function loadStock() {
@@ -1047,17 +1140,15 @@ function renderStockTable(rows, showWarehouseCol, showDateCol) {
 async function setupSnapshotFilter() {
   if (ME.role !== "Админ") return;
   document.getElementById("snapshotFilterCard").classList.remove("hidden");
-  const sel = document.getElementById("snapWarehouses");
-  sel.innerHTML = warehousesList.map(w => `<option value="${w}">${w}</option>`).join("");
-  sel.onchange = loadStock;
+  renderWhChecklist("snapWarehouses", loadStock);
   const today = new Date().toISOString().slice(0,10);
   document.getElementById("snapDateFrom").value = today;
   document.getElementById("snapDateTo").value = today;
 }
+document.getElementById("snapWhClearBtn").onclick = () => { clearWhChecklist("snapWarehouses"); loadStock(); };
 
 document.getElementById("applySnapshotBtn").onclick = async () => {
-  const sel = document.getElementById("snapWarehouses");
-  const chosen = Array.from(sel.selectedOptions).map(o => o.value);
+  const chosen = getWhChecked("snapWarehouses");
   const warehouses = chosen.length ? chosen.join(",") : "ALL";
   const dateFrom = document.getElementById("snapDateFrom").value;
   const dateTo = document.getElementById("snapDateTo").value;
@@ -1098,13 +1189,28 @@ function downloadCsv(csv, filename) {
 }
 
 // ---------- админ: пользователи ----------
+let editingUserLogin = null;
+
+function resetUserForm() {
+  editingUserLogin = null;
+  document.getElementById("userFormTitle").textContent = "Новый пользователь";
+  document.getElementById("newUserLogin").value = "";
+  document.getElementById("newUserLogin").disabled = false;
+  document.getElementById("newUserPass").value = "";
+  document.getElementById("newUserPass").placeholder = "";
+  document.getElementById("newUserRole").value = "СГП";
+  document.getElementById("newUserWarehouse").value = "";
+  document.getElementById("cancelEditUserBtn").classList.add("hidden");
+  document.getElementById("addUserBtn").textContent = "➕ Добавить / обновить пользователя";
+}
+
 async function loadUsers() {
   const el = document.getElementById("usersTable");
   el.innerHTML = "Загрузка…";
   try {
     const r = await apiGet({ action: "users" });
     let html = "<table><tr><th>Логин</th><th>Роль</th><th>Склад</th><th></th></tr>";
-    (r.users || []).forEach(u => html += `<tr><td>${u.login}</td><td>${u.role}</td><td>${u.warehouse}</td><td><button class="btn small secondary" onclick="window.__delUser('${u.login}')">✕</button></td></tr>`);
+    (r.users || []).forEach(u => html += `<tr><td>${u.login}</td><td>${u.role}</td><td>${u.warehouse}</td><td style="white-space:nowrap;"><button class="btn small secondary" onclick="window.__editUser('${u.login}','${u.role}','${u.warehouse}')">✏️</button> <button class="btn small secondary" onclick="window.__delUser('${u.login}')">✕</button></td></tr>`);
     html += "</table>";
     el.innerHTML = html;
   } catch (e) { el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
@@ -1115,19 +1221,33 @@ document.getElementById("addUserBtn").onclick = async () => {
   const role = document.getElementById("newUserRole").value;
   const warehouse = document.getElementById("newUserWarehouse").value.trim() || "-";
   const msg = document.getElementById("adminMsg");
-  if (!login || !password) { msg.innerHTML = `<div class="err">Укажите логин и пароль</div>`; return; }
+  if (!login) { msg.innerHTML = `<div class="err">Укажите логин</div>`; return; }
+  if (!editingUserLogin && !password) { msg.innerHTML = `<div class="err">Для нового пользователя укажите пароль</div>`; return; }
   try {
     await apiPost({ action: "addUser", login, password, role, warehouse });
     msg.innerHTML = `<div class="ok">Пользователь сохранён</div>`;
-    document.getElementById("newUserLogin").value = "";
-    document.getElementById("newUserPass").value = "";
-    document.getElementById("newUserWarehouse").value = "";
+    resetUserForm();
     loadUsers();
   } catch (e) { msg.innerHTML = `<div class="err">Ошибка: ${e}</div>`; }
+};
+document.getElementById("cancelEditUserBtn").onclick = () => resetUserForm();
+window.__editUser = (login, role, warehouse) => {
+  editingUserLogin = login;
+  document.getElementById("userFormTitle").textContent = "Редактирование: " + login;
+  document.getElementById("newUserLogin").value = login;
+  document.getElementById("newUserLogin").disabled = true;
+  document.getElementById("newUserPass").value = "";
+  document.getElementById("newUserPass").placeholder = "оставьте пустым, чтобы не менять";
+  document.getElementById("newUserRole").value = role;
+  document.getElementById("newUserWarehouse").value = warehouse === "-" ? "" : warehouse;
+  document.getElementById("cancelEditUserBtn").classList.remove("hidden");
+  document.getElementById("addUserBtn").textContent = "💾 Сохранить изменения";
+  document.getElementById("newUserLogin").scrollIntoView({ behavior: "smooth", block: "center" });
 };
 window.__delUser = async (login) => {
   if (!confirm("Удалить пользователя " + login + "?")) return;
   await apiPost({ action: "deleteUser", login });
+  if (editingUserLogin === login) resetUserForm();
   loadUsers();
 };
 
@@ -1136,7 +1256,14 @@ async function loadWarehousesAdmin() {
   const el = document.getElementById("warehousesAdminList");
   try {
     const r = await apiGet({ action: "warehouses" });
-    el.innerHTML = (r.warehouses || []).map(w => `<div class="cart-row"><span>${w}</span><button onclick="window.__delWh('${w}')">✕</button></div>`).join("") || "Список пуст.";
+    el.innerHTML = (r.warehouses || []).map(w => `
+      <div class="cart-row" id="whRow_${encodeURIComponent(w)}">
+        <span class="wh-row-label">${w}</span>
+        <span style="white-space:nowrap;">
+          <button class="btn small secondary" onclick="window.__editWh('${w}')">✏️</button>
+          <button onclick="window.__delWh('${w}')">✕</button>
+        </span>
+      </div>`).join("") || "Список пуст.";
   } catch (e) { el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
 }
 document.getElementById("addWarehouseBtn").onclick = async () => {
@@ -1151,6 +1278,31 @@ window.__delWh = async (name) => {
   await apiPost({ action: "deleteWarehouse", name });
   loadWarehousesAdmin();
 };
+window.__editWh = (oldName) => {
+  const row = document.getElementById("whRow_" + encodeURIComponent(oldName));
+  if (!row) return;
+  row.innerHTML = `
+    <input type="text" value="${oldName}" id="whEditInput_${encodeURIComponent(oldName)}" style="flex:1; margin:0 6px 0 0;" />
+    <span style="white-space:nowrap;">
+      <button class="btn small" onclick="window.__saveWh('${oldName}')">💾</button>
+      <button class="btn small secondary" onclick="loadWarehousesAdmin()">Отмена</button>
+    </span>`;
+  const input = document.getElementById("whEditInput_" + encodeURIComponent(oldName));
+  input.focus();
+  input.select();
+};
+window.__saveWh = async (oldName) => {
+  const input = document.getElementById("whEditInput_" + encodeURIComponent(oldName));
+  const newName = (input ? input.value : "").trim();
+  if (!newName) return;
+  if (newName === oldName) { loadWarehousesAdmin(); return; }
+  try {
+    const r = await apiPost({ action: "renameWarehouse", oldName, newName });
+    if (r && r.ok === false) { alert(r.error || "Не удалось переименовать склад"); return; }
+    await loadWarehousesAdmin();
+    await loadUsers();
+  } catch (e) { alert("Ошибка: " + e); }
+};
 
 // ---------- сводка ----------
 function setupSummaryTab() {
@@ -1160,13 +1312,14 @@ function setupSummaryTab() {
   const whRow = document.getElementById("summaryWarehousesRow");
   if (ME.role === "Админ") {
     whRow.classList.remove("hidden");
-    const sel = document.getElementById("summaryWarehouses");
-    if (!sel.dataset.filled) { sel.innerHTML = warehousesList.map(w => `<option value="${w}">${w}</option>`).join(""); sel.dataset.filled = "1"; }
+    const el = document.getElementById("summaryWarehouses");
+    if (!el.dataset.filled) { renderWhChecklist("summaryWarehouses"); el.dataset.filled = "1"; }
   } else {
     whRow.classList.add("hidden");
   }
 }
 document.getElementById("applySummaryBtn").onclick = loadSummary;
+document.getElementById("summaryWhClearBtn").onclick = () => { clearWhChecklist("summaryWarehouses"); loadSummary(); };
 
 async function loadSummary() {
   const el = document.getElementById("summaryResult");
@@ -1175,8 +1328,7 @@ async function loadSummary() {
   const date = document.getElementById("summaryDate").value || new Date().toISOString().slice(0,10);
   let warehouses;
   if (ME.role === "Админ") {
-    const sel = document.getElementById("summaryWarehouses");
-    const chosen = Array.from(sel.selectedOptions).map(o => o.value);
+    const chosen = getWhChecked("summaryWarehouses");
     warehouses = chosen.length ? chosen.join(",") : "ALL";
   } else {
     warehouses = ME.warehouse;
@@ -1195,63 +1347,18 @@ function statusPill(status) {
 
 function renderSummary(r) {
   const el = document.getElementById("summaryResult");
-  if (r.opType === "Сканирование") {
-    let html = "";
-    if (r.missing && r.missing.length) {
-      html += `<div class="card" style="border-color:var(--err-border); background:var(--err-bg);">
-        <b style="color:var(--err-text);">⚠ Не сдали отчёт за ${ddmmyyyy(r.date)} (${r.missing.length} из ${r.totalWarehouses}):</b>
-        <div style="margin-top:6px;">${r.missing.map(w => `<span class="status-pill status-bad" style="margin:2px; display:inline-block;">${w}</span>`).join("")}</div>
-      </div>`;
-    } else {
-      html += `<div class="card" style="border-color:var(--ok-border); background:var(--ok-bg);"><b style="color:var(--ok-text);">✅ Все выбранные склады сдали отчёт за ${ddmmyyyy(r.date)}</b></div>`;
-    }
-    window.__summarySubmitted = r.submitted || [];
-    if (!r.submitted || r.submitted.length === 0) {
-      html += `<div class="muted" style="padding:6px 2px;">Пока нет отправленных отчётов сканирования за эту дату.</div>`;
-    } else {
-      r.submitted.forEach((s, idx) => {
-        const lastAt = s.lastAt ? new Date(s.lastAt).toLocaleString("ru-RU") : "—";
-        html += `<div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="window.__toggleSummaryDetail(${idx})">
-            <b>${s.warehouse}</b><span class="muted">детали ▾</span>
-          </div>
-          <div class="muted" style="margin-top:4px;">Сканирований: ${s.scanSessions} · Позиций: ${s.blocks} · Нарушений: <b style="color:${s.violations ? "var(--err-text)" : "inherit"}">${s.violations}</b> · Последний скан: ${lastAt}</div>
-          <div id="summaryDetail${idx}" class="hidden" style="margin-top:8px;">
-            <table><tr><th>Пользователь</th><th>Код СКЮ</th><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th></tr>
-            ${s.items.map(it => `<tr><td>${it.user}</td><td>${it.lot}</td><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td></tr>`).join("")}
-            </table>
-            <button class="btn small secondary" style="margin-top:8px;" onclick="window.__exportSummaryDetail(${idx})">⬇ Excel</button>
-          </div>
-        </div>`;
-      });
-    }
-    el.innerHTML = html;
-  } else {
-    const items = r.items || [];
-    window.__summaryFlatItems = items;
-    if (!items.length) {
-      el.innerHTML = `<div class="muted" style="padding:6px 2px;">Нет операций «${r.opType === "Расход" ? "отгрузки" : "оприходования"}» за ${ddmmyyyy(r.date)}.</div>`;
-      return;
-    }
-    let html = `<div class="card"><div style="display:flex; justify-content:space-between; align-items:center;"><b>Операции за ${ddmmyyyy(r.date)}</b><button class="btn small secondary" onclick="window.__exportSummaryFlat()">⬇ Excel</button></div>
-      <table><tr><th>Время</th><th>Пользователь</th><th>Операция</th><th>Откуда</th><th>Куда</th><th>Код СКЮ</th><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th></tr>
-      ${items.map(it => `<tr><td>${new Date(it.ts).toLocaleTimeString("ru-RU")}</td><td>${it.user}</td><td>${it.op}</td><td>${it.from}</td><td>${it.to}</td><td>${it.lot}</td><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td></tr>`).join("")}
-      </table></div>`;
-    el.innerHTML = html;
+  const items = r.items || [];
+  window.__summaryFlatItems = items;
+  if (!items.length) {
+    el.innerHTML = `<div class="muted" style="padding:6px 2px;">Нет операций «${r.opType === "Расход" ? "отгрузки" : "оприходования"}» за ${ddmmyyyy(r.date)}.</div>`;
+    return;
   }
+  let html = `<div class="card"><div style="display:flex; justify-content:space-between; align-items:center;"><b>Операции за ${ddmmyyyy(r.date)}</b><button class="btn small secondary" onclick="window.__exportSummaryFlat()">⬇ Excel</button></div>
+    <table><tr><th>Время</th><th>Пользователь</th><th>Операция</th><th>Откуда</th><th>Куда</th><th>Код СКЮ</th><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th></tr>
+    ${items.map(it => `<tr><td>${new Date(it.ts).toLocaleTimeString("ru-RU")}</td><td>${it.user}</td><td>${it.op}</td><td>${it.from}</td><td>${it.to}</td><td>${it.lot}</td><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td></tr>`).join("")}
+    </table></div>`;
+  el.innerHTML = html;
 }
-
-window.__toggleSummaryDetail = (idx) => {
-  document.getElementById("summaryDetail" + idx).classList.toggle("hidden");
-};
-
-window.__exportSummaryDetail = (idx) => {
-  const s = window.__summarySubmitted[idx];
-  if (!s) return;
-  let csv = "Пользователь;Код СКЮ;Наименование;Дата производства;Количество;Статус\n";
-  s.items.forEach(it => csv += `${it.user};${it.lot};${(it.skuName||"").replace(/;/g,",")};${ddmmyyyy(it.prodDate)};${it.qty};${it.status||""}\n`);
-  downloadCsv(csv, `сканирование_${s.warehouse}_${document.getElementById("summaryDate").value}.csv`);
-};
 
 window.__exportSummaryFlat = () => {
   const items = window.__summaryFlatItems || [];
