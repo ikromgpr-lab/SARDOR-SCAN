@@ -539,13 +539,6 @@ function isKnownSkuCode(code) {
   return skuCodesSet.has(String(code).trim().toLowerCase());
 }
 
-// ---------- вход ----------
-(function restoreSession() {
-  const saved = localStorage.getItem("scan_session") || sessionStorage.getItem("scan_session");
-  if (saved) {
-    try { ME = JSON.parse(saved); showMain(); } catch (e) {}
-  }
-})();
 
 document.getElementById("togglePassBtn").onclick = () => {
   const input = document.getElementById("passInput");
@@ -1527,6 +1520,34 @@ window.__exportSummaryFlat = () => {
   items.forEach(it => csv += `${it.op};${it.from};${it.to};${new Date(it.ts).toLocaleString("ru-RU")};${it.lot};${(it.skuName||"").replace(/;/g,",")};${ddmmyyyy(it.prodDate)};${it.qty};${it.user};${it.status||""};${(it.comment||"").replace(/;/g,",").replace(/\n/g," ")}\n`);
   downloadCsv(csv, `сводка_${document.getElementById("summaryOpType").value}_${document.getElementById("summaryDate").value}.csv`);
 }
+
+// ---------- вход: восстановление сессии после перезагрузки страницы ----------
+// ВАЖНО: этот вызов должен идти в самом конце скрипта, ПОСЛЕ всех
+// объявлений const/function (MODE_COLORS, setupModes, showMain и т.д.).
+// Раньше он стоял в начале файла и, если пользователь был уже залогинен
+// (сохранённая сессия в localStorage/sessionStorage) и просто обновлял
+// страницу (F5), вызывал showMain()→setupModes() ДО того, как
+// "const MODE_COLORS" (и соседние const'ы) были инициализированы ниже по
+// файлу — из-за временной мёртвой зоны (TDZ) это падало с
+// "Cannot access 'MODE_COLORS' before initialization", и раздел "Операции"
+// оставался пустым именно после обновления страницы (при первом входе по
+// кнопке "Войти" ошибки не было, т.к. клик происходит уже после того, как
+// скрипт целиком выполнился и все const успели объявиться).
+function restoreSession() {
+  const saved = localStorage.getItem("scan_session") || sessionStorage.getItem("scan_session");
+  if (!saved) return;
+  try {
+    ME = JSON.parse(saved);
+  } catch (e) {
+    localStorage.removeItem("scan_session");
+    sessionStorage.removeItem("scan_session");
+    return;
+  }
+  showMain().catch(e => {
+    console.error("Не удалось восстановить сессию:", e);
+  });
+}
+restoreSession();
 </script>
 </body>
 </html>
