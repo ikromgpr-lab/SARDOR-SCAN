@@ -609,15 +609,28 @@ async function showMain() {
   document.getElementById("mainScreen").classList.remove("hidden");
   document.getElementById("whoAmI").textContent = ME.warehouse;
   document.getElementById("roleBadge").textContent = ME.role;
-  // Пока справочники не загрузились — короткая подпись вместо пустого
-  // раздела "Операции" (иначе на медленной связи страница секунду-две
-  // выглядит так, будто раздел операций пропал).
-  const modeBox = document.getElementById("modeButtons");
-  if (modeBox) modeBox.innerHTML = `<div class="muted">Загрузка…</div>`;
 
-  // Справочники (склады/агенты/цеха/СКЮ) грузим ПАРАЛЛЕЛЬНО, а не по очереди —
-  // раньше 4 запроса шли один за другим, и на живой сети (не локальный тест)
-  // раздел "Операции" мог секунду-две казаться пустым.
+  // Кнопки режимов ("Приход"/"Отгрузка"/"Сканирования") зависят только от
+  // роли (ME.role уже известна сразу после входа) — они НЕ ждут справочники
+  // со склада/агентами/цехами. Поэтому рисуем их сразу же, не дожидаясь
+  // сети: раньше это происходило только после 4 запросов к серверу, и на
+  // медленной связи (обычное дело для Google Apps Script) раздел "Операции"
+  // секунду-две выглядел пустым/пропавшим.
+  setupModes();
+  refreshPendingBadge();
+  if (ME.role === "Админ") {
+    document.getElementById("adminTabBtn").classList.remove("hidden");
+    // У Админа нет своего фиксированного склада — «Входящие» (уведомления
+    // конкретному складу) ему не нужны, а вот «Операции» теперь доступны
+    // полностью: он может провести приход/отгрузку за любой склад.
+    document.querySelector('.tab-btn[data-tab="pending"]').classList.add("hidden");
+    document.getElementById("adminNote").classList.remove("hidden");
+  }
+
+  // Справочники (склады/агенты/цеха/СКЮ) нужны только для СОДЕРЖИМОГО
+  // выпадающих списков "откуда/куда"/агент — грузим их в фоне ПАРАЛЛЕЛЬНО
+  // (не по очереди), и когда они придут — обновляем поля текущего режима,
+  // не трогая ни выбранный режим, ни уже начатый список сканирования.
   const [whRes, agentsRes, shopsRes, skusRes] = await Promise.all([
     apiGet({ action: "warehouses" }).catch(() => ({ warehouses: [] })),
     apiGet({ action: "agents" }).catch(() => ({ agents: [] })),
@@ -631,17 +644,8 @@ async function showMain() {
   skuList = skusRes.skus || [];
   skuCodesSet = new Set(skuList.map(s => String(s.code).trim().toLowerCase()));
 
-  setupModes();
-  refreshPendingBadge();
-  setupSnapshotFilter();
-  if (ME.role === "Админ") {
-    document.getElementById("adminTabBtn").classList.remove("hidden");
-    // У Админа нет своего фиксированного склада — «Входящие» (уведомления
-    // конкретному складу) ему не нужны, а вот «Операции» теперь доступны
-    // полностью: он может провести приход/отгрузку за любой склад.
-    document.querySelector('.tab-btn[data-tab="pending"]').classList.add("hidden");
-    document.getElementById("adminNote").classList.remove("hidden");
-  }
+  applyModeUI(); // подставляем реальные списки складов/агентов/цехов в поля текущего режима
+  setupSnapshotFilter(); // чек-лист складов в "Остатках" тоже зависит от warehousesList
 }
 
 // ---------- вкладки (нижняя навигация) ----------
@@ -1118,17 +1122,34 @@ async function loadPending() {
     const items = r.pending || [];
     if (items.length === 0) { el.innerHTML = "Нет ожидающих поставок."; return; }
     el.innerHTML = items.map(it => `
-      <div class="card" style="margin-bottom:8px; background:var(--warn-bg); border-color:var(--warn-border);">
+      <div class="card" id="pendingCard_${it.id}" style="margin-bottom:8px; background:var(--warn-bg); border-color:var(--warn-border);">
         Партия <b>${it.lot}</b> · дата произв. ${it.prodDate.split("-").reverse().join(".")} · <b>${it.qty} шт</b><br>
         Откуда: ${it.from} · отправлено: ${new Date(it.sentAt).toLocaleString("ru-RU")}
-        <button class="btn small" style="margin-top:6px;" onclick="window.__receive('${it.id}')">✅ Принять</button>
+        <label class="lbl" style="margin-top:6px;">Комментарий отправителю (необязательно)</label>
+        <textarea id="pendingComment_${it.id}" rows="2" placeholder="Например: количество не совпадает, приедет ещё одна коробка…" style="width:100%; box-sizing:border-box; font-family:inherit; font-size:14px; padding:8px; border:1px solid var(--border); border-radius:8px;"></textarea>
+        <button class="btn small" id="pendingBtn_${it.id}" style="margin-top:6px;" onclick="window.__receive('${it.id}')">✅ Принять</button>
+        <div id="pendingErr_${it.id}"></div>
       </div>`).join("");
   } catch (e) { el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
 }
 window.__receive = async (id) => {
-  await apiPost({ action: "receive", id });
-  loadPending();
-  refreshPendingBadge();
+  const btn = document.getElementById("pendingBtn_" + id);
+  const errBox = document.getElementById("pendingErr_" + id);
+  const commentEl = document.getElementById("pendingComment_" + id);
+  const comment = commentEl ? commentEl.value.trim() : "";
+  if (btn) btn.disabled = true;
+  if (errBox) errBox.innerHTML = "";
+  try {
+    const res = await apiPost({ action: "receive", id, comment });
+    if (!res || res.ok === false) throw new Error(res && res.error ? res.error : "сервер отклонил приёмку");
+    loadPending();
+    refreshPendingBadge();
+  } catch (e) {
+    // Приёмку не подтверждаем "молча" — раньше ошибка сети/сервера здесь
+    // просто проглатывалась, и кнопка выглядела так, будто ничего не делает.
+    if (btn) btn.disabled = false;
+    if (errBox) errBox.innerHTML = `<div class="err" style="margin-top:6px;">Не удалось принять: ${e}. Проверьте связь и попробуйте ещё раз — позиция осталась во «Входящих».</div>`;
+  }
 };
 
 // ---------- чек-лист складов (замена <select multiple> — удобнее на телефоне
@@ -1492,17 +1513,18 @@ function renderSummary(r) {
     el.innerHTML = `<div class="muted" style="padding:6px 2px;">Нет операций «${opWord}» за ${ddmmyyyy(r.date)}.</div>`;
     return;
   }
+  const hasComments = items.some(it => it.comment);
   let html = `<div class="card"><div style="display:flex; justify-content:space-between; align-items:center;"><b>Операции за ${ddmmyyyy(r.date)}</b><button class="btn small secondary" onclick="window.__exportSummaryFlat()">⬇ Excel</button></div>
-    <div class="table-scroll"><table><tr><th>Время</th><th>Пользователь</th><th>Операция</th><th>Откуда</th><th>Куда</th><th>Код СКЮ</th><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th></tr>
-    ${items.map(it => `<tr><td>${new Date(it.ts).toLocaleTimeString("ru-RU")}</td><td>${it.user}</td><td>${it.op}</td><td>${it.from}</td><td>${it.to}</td><td>${it.lot}</td><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td></tr>`).join("")}
+    <div class="table-scroll"><table><tr><th>Время</th><th>Пользователь</th><th>Операция</th><th>Откуда</th><th>Куда</th><th>Код СКЮ</th><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th>${hasComments ? "<th>Комментарий получателя</th>" : ""}</tr>
+    ${items.map(it => `<tr><td>${new Date(it.ts).toLocaleTimeString("ru-RU")}</td><td>${it.user}</td><td>${it.op}</td><td>${it.from}</td><td>${it.to}</td><td>${it.lot}</td><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td>${hasComments ? `<td>${it.comment ? `<span class="warn" style="padding:2px 6px; border-radius:6px;">${it.comment}</span>` : ""}</td>` : ""}</tr>`).join("")}
     </table></div></div>`;
   el.innerHTML = html;
 }
 
 window.__exportSummaryFlat = () => {
   const items = window.__summaryFlatItems || [];
-  let csv = "Операция;Откуда;Куда;Время;Код СКЮ;Наименование;Дата производства;Количество;Пользователь;Статус\n";
-  items.forEach(it => csv += `${it.op};${it.from};${it.to};${new Date(it.ts).toLocaleString("ru-RU")};${it.lot};${(it.skuName||"").replace(/;/g,",")};${ddmmyyyy(it.prodDate)};${it.qty};${it.user};${it.status||""}\n`);
+  let csv = "Операция;Откуда;Куда;Время;Код СКЮ;Наименование;Дата производства;Количество;Пользователь;Статус;Комментарий получателя\n";
+  items.forEach(it => csv += `${it.op};${it.from};${it.to};${new Date(it.ts).toLocaleString("ru-RU")};${it.lot};${(it.skuName||"").replace(/;/g,",")};${ddmmyyyy(it.prodDate)};${it.qty};${it.user};${it.status||""};${(it.comment||"").replace(/;/g,",").replace(/\n/g," ")}\n`);
   downloadCsv(csv, `сводка_${document.getElementById("summaryOpType").value}_${document.getElementById("summaryDate").value}.csv`);
 }
 </script>
