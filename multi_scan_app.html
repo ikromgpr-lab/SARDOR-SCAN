@@ -197,6 +197,12 @@
     border-radius:10px; padding:8px 10px; font-size:12.5px; margin-bottom:6px;
   }
   .scan-last-row button { background:var(--err-bg); border:1px solid var(--err-border); color:var(--err-text); border-radius:6px; padding:3px 9px; font-size:11px; }
+  .zoom-hint {
+    position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:2;
+    color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.45);
+    padding:6px 14px; border-radius:20px; white-space:nowrap; opacity:1; transition:opacity .5s ease;
+  }
+  .zoom-hint.zh-off { opacity:0; pointer-events:none; }
 
   @media (min-width: 720px) {
     .app-content { max-width: 760px; }
@@ -475,9 +481,11 @@
       <span class="corner tl"></span><span class="corner tr"></span>
       <span class="corner bl"></span><span class="corner br"></span>
     </div>
+    <div class="zoom-hint zh-off" id="zoomHint">🤏 Разведите пальцы на экране, чтобы приблизить</div>
     <div class="scan-topbar">
       <button class="icon-btn" id="scanCloseBtn" aria-label="Закрыть">✕</button>
       <div class="scan-counter-pill">Отсканировано: <b id="scanCounter">0</b></div>
+      <button class="icon-btn" id="scanSoundBtn" aria-label="Звук при сканировании">🔊</button>
       <button class="icon-btn hidden" id="scanTorchBtn" aria-label="Фонарик">🔦</button>
     </div>
   </div>
@@ -522,6 +530,36 @@ let shopsList = [];       // список цехов (лист "Shops") — дл
 let skuList = [];         // [{code,name,group}, ...] — справочник СКЮ с сервера
 let skuCodesSet = null;   // Set нормализованных кодов для быстрой проверки при сканировании
 let scanLocked = false;
+
+// ---------- звук при успешном сканировании (можно отключить, кнопка рядом с фонариком) ----------
+let scanSoundOn = true;
+try { const saved = localStorage.getItem("scanSoundOn"); if (saved !== null) scanSoundOn = saved === "1"; } catch (e) {}
+let audioCtx = null;
+function updateScanSoundBtn() {
+  const btn = document.getElementById("scanSoundBtn");
+  if (!btn) return;
+  btn.textContent = scanSoundOn ? "🔊" : "🔇";
+  btn.setAttribute("aria-label", scanSoundOn ? "Звук включён — нажмите, чтобы выключить" : "Звук выключен — нажмите, чтобы включить");
+}
+function playBeep() {
+  if (!scanSoundOn) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1500, t0);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.4, t0 + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.13);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.14);
+  } catch (e) { /* звук необязателен — тихо игнорируем, если Web Audio недоступен */ }
+}
 
 // ---------- фильтры: запоминаем выбор в пределах сессии (до выхода) ----------
 function saveFilter(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
@@ -644,6 +682,7 @@ async function showMain() {
 
   applyModeUI(); // подставляем реальные списки складов/агентов/цехов в поля текущего режима
   setupSnapshotFilter(); // чек-лист складов в "Остатках" тоже зависит от warehousesList
+  restoreCartDraft(); // если в прошлый раз список отсканированного не был проведён — предлагаем его вернуть
 }
 
 // ---------- вкладки (нижняя навигация) ----------
@@ -896,9 +935,61 @@ function renderCart() {
   const counterEl = document.getElementById("scanCounter");
   if (counterEl) counterEl.textContent = cart.length;
   renderLast3();
+  saveCartDraft(); // сохраняем несохранённый список — переживёт обновление страницы (см. ниже)
 }
 window.__rm = (i) => { cart.splice(i, 1); renderCart(); };
 document.getElementById("clearCartBtn").onclick = () => { cart = []; renderCart(); };
+
+// ---------- черновик несохранённого списка — переживает обновление страницы ----------
+// Раньше cart жил только в памяти вкладки: обновление страницы (F5), случайное
+// закрытие вкладки или разрядка телефона стирали весь отсканированный, но ещё
+// не проведённый список безвозвратно. Теперь при каждом изменении списка
+// (renderCart) черновик сохраняется в localStorage, а при входе/восстановлении
+// сессии — предлагается восстановить.
+function cartDraftKey() {
+  return "cartDraft_" + (ME && ME.login ? ME.login : "anon");
+}
+function saveCartDraft() {
+  try {
+    if (!ME) return;
+    if (!cart.length) { localStorage.removeItem(cartDraftKey()); return; }
+    localStorage.setItem(cartDraftKey(), JSON.stringify({
+      mode: currentMode, from: getFrom(), to: getTo(), cart: cart, savedAt: Date.now()
+    }));
+  } catch (e) { /* localStorage недоступен (приватный режим и т.п.) — не критично */ }
+}
+function restoreCartDraft() {
+  let draft = null;
+  try {
+    const raw = localStorage.getItem(cartDraftKey());
+    if (raw) draft = JSON.parse(raw);
+  } catch (e) { return; }
+  if (!draft || !Array.isArray(draft.cart) || !draft.cart.length) return;
+
+  const savedCart = draft.cart;
+  const applyRestoredFields = () => {
+    if (draft.from) {
+      const fromSelect = document.getElementById("fromSelect"), fromInput = document.getElementById("fromInput");
+      if (fromSelect.style.display !== "none" && !fromSelect.disabled && [...fromSelect.options].some(o => o.value === draft.from)) fromSelect.value = draft.from;
+      else if (fromInput.style.display !== "none" && !fromInput.disabled) fromInput.value = draft.from;
+    }
+    if (draft.to) {
+      const toSelect = document.getElementById("toSelect"), toInput = document.getElementById("toInput");
+      if (toSelect.style.display !== "none" && !toSelect.disabled && [...toSelect.options].some(o => o.value === draft.to)) toSelect.value = draft.to;
+      else if (toInput.style.display !== "none" && !toInput.disabled) toInput.value = draft.to;
+    }
+    cart = savedCart;
+    renderCart();
+    const msg = document.getElementById("scanMsg");
+    if (msg) msg.innerHTML = `<div class="warn">↺ Восстановлен несохранённый список (${savedCart.length} поз.) — он не был проведён в прошлый раз. Проверьте и нажмите «Провести весь список», либо «Очистить список», если он не нужен.</div>`;
+  };
+
+  if (draft.mode && draft.mode !== currentMode) {
+    const btn = document.querySelector(`.mode-btn[data-mode="${draft.mode}"]`);
+    if (btn) { btn.click(); /* сбрасывает cart/currentMode/UI под нужный режим */ applyRestoredFields(); return; }
+  }
+  applyRestoredFields();
+}
 
 function updateCommitState() {
   const btn = document.getElementById("commitBtn");
@@ -946,9 +1037,25 @@ document.getElementById("toggleManualBtn").onclick = () => {
 };
 
 // ---------- полноэкранный сканер ----------
-document.getElementById("scanBtn").onclick = openScanner;
+document.getElementById("scanBtn").onclick = () => {
+  // "Прогреваем" звук прямо по клику пользователя (жест), иначе браузер может
+  // заблокировать автозапуск AudioContext, когда он создаётся позже — уже
+  // асинхронно, из колбэка распознавания камеры.
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) {}
+  openScanner();
+};
 document.getElementById("scanCloseBtn").onclick = closeScanner;
 document.getElementById("scanDoneBtn").onclick = closeScanner;
+document.getElementById("scanSoundBtn").onclick = () => {
+  scanSoundOn = !scanSoundOn;
+  try { localStorage.setItem("scanSoundOn", scanSoundOn ? "1" : "0"); } catch (e) {}
+  updateScanSoundBtn();
+  if (scanSoundOn) playBeep(); // короткий сигнал сразу — понятно, что звук теперь включён
+};
+updateScanSoundBtn();
 document.getElementById("qeCancelBtn").onclick = closeQuickEntry;
 document.getElementById("scanCheckOkBtn").onclick = closeQuickEntry;
 document.getElementById("qeAddBtn").onclick = confirmQuickEntry;
@@ -968,30 +1075,41 @@ function openScanner() {
   renderLast3();
 
   html5QrCode = new Html5Qrcode("reader");
-  // Настройки подобраны для максимальной скорости распознавания:
-  // - fps увеличен с 10 до 15 (чаще анализируем кадры — код ловится быстрее);
+  // Настройки подобраны для максимальной скорости распознавания и для мелких
+  // штрих-кодов:
+  // - fps увеличен до 20 (чаще анализируем кадры — код ловится быстрее);
   // - useBarCodeDetectorIfSupported включает встроенный в браузер (Chrome/Android)
   //   аппаратный декодер штрих-кодов вместо JS-декодера — на поддерживающих
   //   устройствах это в разы быстрее; на остальных браузерах просто не используется,
   //   без потери работоспособности;
   // - disableFlip отключает лишнюю попытку распознать зеркально отражённый кадр
   //   (не нужна при обычном сканировании с задней камеры) — экономит время на кадр;
-  // - videoConstraints просит у камеры более высокий и стабильный fps потока,
-  //   чтобы библиотеке было из чего чаще выбирать кадры для анализа.
+  // - videoConstraints просит у камеры более высокий и стабильный fps потока и
+  //   более высокое разрешение (Full HD) — чем чётче картинка, тем увереннее
+  //   декодер читает мелкие/плотные штрих-коды; после старта отдельно включаем
+  //   непрерывный автофокус (setupFocusMode) и зум щипком (setupPinchZoom) —
+  //   оба тоже напрямую помогают с мелкими кодами.
   html5QrCode.start(
     { facingMode: "environment" },
     {
-      fps: 15,
-      qrbox: { width: 320, height: 130 },
+      fps: 20,
+      qrbox: { width: 340, height: 160 },
       disableFlip: true,
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128],
-      videoConstraints: { facingMode: "environment", frameRate: { ideal: 30, max: 30 } }
+      videoConstraints: {
+        facingMode: "environment",
+        frameRate: { ideal: 30, max: 30 },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
     },
     onScanDecoded,
     () => {}
   ).then(() => {
     setupTorchButton();
+    setupFocusMode();
+    setupPinchZoom();
   }).catch(err => {
     document.getElementById("scanHintText").textContent = "Камера недоступна: " + err;
   });
@@ -1014,6 +1132,77 @@ function setupTorchButton() {
       };
     }
   } catch (e) { /* фонарик недоступен — не критично */ }
+}
+
+// Достаём "сырой" видео-трек текущей камеры в обход обёртки html5-qrcode —
+// нужен для автофокуса и зума, которых нет в её собственном API.
+function getActiveVideoTrack() {
+  try {
+    const videoEl = document.querySelector("#reader video");
+    const stream = videoEl && videoEl.srcObject;
+    return stream ? stream.getVideoTracks()[0] : null;
+  } catch (e) { return null; }
+}
+
+function setupFocusMode() {
+  // Непрерывный автофокус (continuous) — камера сама постоянно подстраивает
+  // резкость, что особенно важно для мелких штрих-кодов и для случаев, когда
+  // расстояние до этикетки постоянно меняется. Поддерживается не на всех
+  // устройствах (в основном Chrome/Android) — там, где нет, просто ничего
+  // не делаем, обычный автофокус браузера остаётся как был.
+  try {
+    const track = getActiveVideoTrack();
+    if (!track || !track.getCapabilities) return;
+    const caps = track.getCapabilities();
+    if (caps.focusMode && caps.focusMode.includes("continuous")) {
+      track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+    }
+  } catch (e) { /* автофокус недоступен — не критично, останется обычный */ }
+}
+
+// ---------- зум щипком двух пальцев — приблизить мелкий штрих-код ----------
+let pinchStartDist = null;
+let pinchStartZoom = null;
+function setupPinchZoom() {
+  const wrap = document.querySelector(".scan-video-wrap");
+  const zoomHint = document.getElementById("zoomHint");
+  if (!wrap) return;
+  try {
+    const track = getActiveVideoTrack();
+    const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+    if (!caps || !caps.zoom) { if (zoomHint) zoomHint.classList.add("zh-off"); return; }
+    // зум поддерживается — на 2.5 сек показываем подсказку, затем прячем
+    if (zoomHint) {
+      zoomHint.classList.remove("zh-off");
+      clearTimeout(zoomHint._hideTimer);
+      zoomHint._hideTimer = setTimeout(() => zoomHint.classList.add("zh-off"), 2500);
+    }
+  } catch (e) { return; }
+  if (wrap._pinchBound) return; // слушатели вешаем один раз на весь срок жизни страницы
+  wrap._pinchBound = true;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  wrap.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 2) return;
+    const track = getActiveVideoTrack();
+    const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+    if (!caps || !caps.zoom) return;
+    pinchStartDist = dist(e.touches);
+    const settings = track.getSettings ? track.getSettings() : {};
+    pinchStartZoom = settings.zoom || caps.zoom.min || 1;
+  }, { passive: true });
+  wrap.addEventListener("touchmove", (e) => {
+    if (e.touches.length !== 2 || pinchStartDist == null) return;
+    const track = getActiveVideoTrack();
+    const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+    if (!caps || !caps.zoom) return;
+    const ratio = dist(e.touches) / pinchStartDist;
+    let z = pinchStartZoom * ratio;
+    z = Math.max(caps.zoom.min, Math.min(caps.zoom.max, z));
+    track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+  }, { passive: true });
+  wrap.addEventListener("touchend", (e) => {
+    if (e.touches.length < 2) pinchStartDist = null;
+  }, { passive: true });
 }
 
 // Распознавание камерой (html5-qrcode) — скорость настроена в openScanner()
@@ -1039,6 +1228,7 @@ function onScanDecoded(decodedText) {
     return;
   }
   scanLocked = true;
+  playBeep(); // короткий сигнал об успешном сканировании (можно выключить кнопкой 🔊 рядом с фонариком)
   showQuickEntry(p);
 }
 
