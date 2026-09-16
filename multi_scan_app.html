@@ -49,6 +49,11 @@
     margin-bottom:12px; background:var(--card); box-shadow: var(--shadow);
   }
   #cartCard { border-left:5px solid var(--mode-color, var(--red)); }
+  #cartCard.cart-flash { animation: cartFlash 1.4s ease-out; }
+  @keyframes cartFlash {
+    0%   { box-shadow: 0 0 0 3px var(--ok-border, #bfe8cc); background: var(--ok-bg, #e7f6ec); }
+    100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); background: var(--card); }
+  }
   .mode-banner {
     display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:var(--radius-sm);
     font-weight:800; font-size:13.5px; letter-spacing:.02em; margin:2px 0 12px; color:#fff;
@@ -1098,6 +1103,20 @@ function closeScanner() {
   }
   document.getElementById("scanOverlay").classList.add("hidden");
   scanLocked = false;
+  // После закрытия сканера показываем список отсканированного ("Текущий
+  // документ") под кнопкой «Сканировать» на основном экране — прокручиваем
+  // к нему и на секунду подсвечиваем, чтобы было видно, что список появился
+  // не только внутри окна сканирования, но и здесь.
+  if (cart.length) {
+    const card = document.getElementById("cartCard");
+    setTimeout(() => {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.remove("cart-flash");
+      void card.offsetWidth; // перезапуск анимации, если она уже была
+      card.classList.add("cart-flash");
+      setTimeout(() => card.classList.remove("cart-flash"), 1500);
+    }, 150);
+  }
 }
 
 // ---------- входящие (для регионов) ----------
