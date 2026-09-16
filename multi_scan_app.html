@@ -192,6 +192,14 @@
   .scan-mode-label { text-align:center; font-size:11.5px; color:var(--mode-color, var(--red)); font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.02em; }
   .scan-quick-info { font-size:14px; margin-bottom:2px; }
   .scan-last3 { margin:10px 0 4px; }
+  .scan-list-handle {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+    padding:2px 0 8px; cursor:pointer; user-select:none; touch-action:pan-y;
+  }
+  .scan-list-handle .grip { width:38px; height:4px; border-radius:3px; background:var(--border, #d8d8d8); }
+  .scan-list-handle-label { font-size:11px; color:var(--muted); font-weight:600; }
+  .scan-last-body { max-height:140px; overflow-y:auto; transition:max-height .25s ease; }
+  .scan-last3.expanded .scan-last-body { max-height:44vh; }
   .scan-last-row {
     display:flex; justify-content:space-between; align-items:center; background:var(--bg);
     border-radius:10px; padding:8px 10px; font-size:12.5px; margin-bottom:6px;
@@ -512,7 +520,13 @@
 
     <div id="scanHintText" class="scan-hint-text">Наведите камеру на штрих-код этикетки</div>
 
-    <div class="scan-last3" id="scanLast3"></div>
+    <div class="scan-last3" id="scanLast3">
+      <div class="scan-list-handle hidden" id="scanListHandle">
+        <span class="grip"></span>
+        <span class="scan-list-handle-label" id="scanListHandleLabel"></span>
+      </div>
+      <div class="scan-last-body" id="scanLastBody"></div>
+    </div>
 
     <button class="btn" id="scanDoneBtn">✅ Готово</button>
   </div>
@@ -559,6 +573,30 @@ function playBeep() {
     osc.start(t0);
     osc.stop(t0 + 0.14);
   } catch (e) { /* звук необязателен — тихо игнорируем, если Web Audio недоступен */ }
+}
+// Отклоняющий сигнал — два коротких низких сигнала (в отличие от одного
+// высокого при успехе), чтобы отличать на слух: код прочитан, но партия
+// не подходит (будущая дата, чужой/незнакомый штрих-код и т.п.).
+function playRejectBeep() {
+  if (!scanSoundOn) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    [0, 0.11].forEach(delay => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(320, t0 + delay);
+      gain.gain.setValueAtTime(0.0001, t0 + delay);
+      gain.gain.exponentialRampToValueAtTime(0.28, t0 + delay + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + delay + 0.1);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t0 + delay);
+      osc.stop(t0 + delay + 0.11);
+    });
+  } catch (e) { /* звук необязателен */ }
 }
 
 // ---------- фильтры: запоминаем выбор в пределах сессии (до выхода) ----------
@@ -626,17 +664,35 @@ document.getElementById("logoutBtn").onclick = () => {
 // телом text/plain — это не требует CORS preflight и не ограничено длиной URL
 // (в отличие от прежнего варианта, где данные "commit" пихались в query-string —
 // при большом списке позиций такой запрос мог обрываться и не доходить до Таблицы).
+// У Google Apps Script бывают "холодные" запуски и медленные ответы —
+// без явного таймаута fetch может висеть бесконечно (особенно на слабом
+// складском интернете), и кнопка выглядит "зависшей"/"не работает", хотя
+// на самом деле просто ждёт сервер. Даём разумный предел и понятную ошибку.
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new Error(`Сервер не ответил за ${Math.round(timeoutMs / 1000)} сек (медленная связь или Google Apps Script перегружен). Проверьте интернет и попробуйте ещё раз`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function apiPost(payload) {
-  const res = await fetch(SCRIPT_URL, {
+  const res = await fetchWithTimeout(SCRIPT_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(payload)
-  });
+  }, 30000);
   return res.json();
 }
 async function apiGet(params) {
   const url = SCRIPT_URL + "?" + new URLSearchParams(params).toString();
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url, {}, 20000);
   return res.json();
 }
 
@@ -877,14 +933,19 @@ function getTo() {
 // Формат стал гибче: код СКЮ теперь не только 3 цифры (128-...), но и текст
 // (Кекс 4-...), как на реальных этикетках — а строгость (не реагировать на
 // случайные штрих-коды) обеспечивает проверка по справочнику СКЮ ниже.
+// Возвращает { ok:true, lot, isoDate, displayDate } при успехе, либо
+// { ok:false, reason } при отказе — reason:"format" (не похоже на нашу
+// этикетку вообще) или reason:"unknown_sku" (формат верный, но код не из
+// справочника СКЮ) — так вызывающий код может показать разное сообщение
+// вместо того, чтобы тихо игнорировать посторонний штрих-код.
 function parseCode(text) {
   const clean = text.replace(/\*/g, "").trim();
   const m = clean.match(LABEL_RE);
-  if (!m) return null;
+  if (!m) return { ok: false, reason: "format" };
   const [, lotRaw, dd, mm, yyyy] = m;
   const lot = lotRaw.trim();
-  if (!isKnownSkuCode(lot)) return null;
-  return { lot, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
+  if (!isKnownSkuCode(lot)) return { ok: false, reason: "unknown_sku", lot };
+  return { ok: true, lot, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
 }
 // Партия с датой производства "в будущем" (относительно фактической даты
 // сканирования) физически невозможна — это либо ошибка сканирования, либо
@@ -900,7 +961,7 @@ function checkOldDate(code) {
   const p = parseCode(code);
   const warnBox = document.getElementById("dateWarn");
   warnBox.innerHTML = "";
-  if (!p || currentMode !== "in") return;
+  if (!p.ok || currentMode !== "in") return;
   const days = (Date.now() - new Date(p.isoDate).getTime()) / 86400000;
   if (days > 10) {
     warnBox.innerHTML = `<div class="warn">⚠ Дата производства ${p.displayDate} — уже ${Math.round(days)} дн. назад. Возможно, это пришло не из Цеха, а с регионального склада — проверьте поле "Откуда".</div>`;
@@ -912,7 +973,12 @@ document.getElementById("codeInput").addEventListener("change", (e) => checkOldD
 document.getElementById("addBtn").onclick = async () => {
   const msg = document.getElementById("scanMsg");
   const p = parseCode(document.getElementById("codeInput").value);
-  if (!p) { msg.innerHTML = `<div class="err">Формат не распознан. Нужно: код СКЮ - дата производства, например 128-14.12.2026 или Кекс 4-14.12.2026 (код должен быть известным СКЮ)</div>`; return; }
+  if (!p.ok) {
+    msg.innerHTML = p.reason === "unknown_sku"
+      ? `<div class="err">Код «${p.lot}» не найден в справочнике СКЮ — проверьте этикетку или обратитесь к администратору, если это новая позиция.</div>`
+      : `<div class="err">Формат не распознан. Нужно: код СКЮ - дата производства, например 128-14.12.2026 или Кекс 4-14.12.2026 (код должен быть известным СКЮ)</div>`;
+    return;
+  }
   if (isFutureProdDate(p.isoDate)) { msg.innerHTML = `<div class="err">Дата производства ${p.displayDate} ещё не наступила — такая партия не могла существовать. Проверьте этикетку.</div>`; return; }
 
   const qty = parseFloat(document.getElementById("qtyInput").value);
@@ -1011,7 +1077,11 @@ document.getElementById("commitBtn").onclick = async () => {
   const msg = document.getElementById("scanMsg");
   const opName = { in: "Приход", out_sgp: "Отгрузка (СГП)", out_agent: "Отгрузка агенту", check: "Сканирование" }[currentMode];
   const btn = document.getElementById("commitBtn");
+  if (btn.disabled) return; // защита от повторного нажатия, пока уже идёт отправка
+  const originalLabel = btn.textContent;
   btn.disabled = true;
+  btn.textContent = "⏳ Отправка на сервер...";
+  msg.innerHTML = `<div class="hint">Отправляем ${cart.length} ${cart.length === 1 ? "позицию" : "позиций"} в Google Таблицу — это может занять несколько секунд...</div>`;
   try {
     await apiPost({
       action: "commit", user: ME.login, role: ME.role, operation: opName,
@@ -1024,6 +1094,7 @@ document.getElementById("commitBtn").onclick = async () => {
   } catch (e) {
     msg.innerHTML = `<div class="err">Не удалось отправить на сервер: ${e}. Проверьте подключение к интернету и попробуйте снова — список позиций сохранён.</div>`;
   } finally {
+    btn.textContent = originalLabel;
     updateCommitState();
   }
 };
@@ -1068,6 +1139,7 @@ function openScanner() {
     { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Сканирования" }[currentMode] || "";
   document.getElementById("scanCounter").textContent = cart.length;
   scanLocked = false;
+  scanListExpanded = false;
   const hintEl = document.getElementById("scanHintText");
   hintEl.textContent = SCAN_HINT_DEFAULT;
   hintEl.classList.remove("warn-flash");
@@ -1085,10 +1157,18 @@ function openScanner() {
   // - disableFlip отключает лишнюю попытку распознать зеркально отражённый кадр
   //   (не нужна при обычном сканировании с задней камеры) — экономит время на кадр;
   // - videoConstraints просит у камеры более высокий и стабильный fps потока и
-  //   более высокое разрешение (Full HD) — чем чётче картинка, тем увереннее
-  //   декодер читает мелкие/плотные штрих-коды; после старта отдельно включаем
+  //   максимально возможное разрешение (пробуем 4K, камера сама отдаст макс.
+  //   доступное, если 4K нет) — чем чётче картинка, тем увереннее декодер
+  //   читает мелкие и удалённые штрих-коды; после старта отдельно включаем
   //   непрерывный автофокус (setupFocusMode) и зум щипком (setupPinchZoom) —
-  //   оба тоже напрямую помогают с мелкими кодами.
+  //   оба тоже напрямую помогают читать код издалека.
+  // Если браузер поддерживает нативный BarcodeDetector (Chrome/Android) — не
+  // отдаём кадры на распознавание через html5-qrcode (это медленнее и не даёт
+  // точно обрезать зону сканирования), а запускаем свой цикл ниже
+  // (startNativeScanLoop), который берёт кадры НАПРЯМУЮ из video и обрезает
+  // их ровно по рамке-видоискателю — поэтому сканируется именно то место,
+  // что в рамке, а не что-то рядом, и это заметно быстрее.
+  nativeScanActive = false;
   html5QrCode.start(
     { facingMode: "environment" },
     {
@@ -1100,19 +1180,117 @@ function openScanner() {
       videoConstraints: {
         facingMode: "environment",
         frameRate: { ideal: 30, max: 30 },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
+        width: { ideal: 3840 },
+        height: { ideal: 2160 }
       }
     },
-    onScanDecoded,
+    (text) => { if (!nativeScanActive) onScanDecoded(text); },
     () => {}
   ).then(() => {
     setupTorchButton();
     setupFocusMode();
     setupPinchZoom();
+    startNativeScanLoop();
   }).catch(err => {
     document.getElementById("scanHintText").textContent = "Камера недоступна: " + err;
   });
+}
+
+// ---------- нативное быстрое сканирование с точной обрезкой по рамке ----------
+// BarcodeDetector — встроенный в Chrome/Android API распознавания штрих-кодов,
+// в разы быстрее JS-декодера html5-qrcode и работает прямо с "сырыми" кадрами
+// видео в их полном (в т.ч. 4K) разрешении. Мы сами берём кадр из <video>,
+// обрезаем его канвасом ровно по видимой рамке-видоискателю (с учётом того,
+// что видео показывается через object-fit:cover, т.е. часть кадра обрезана
+// уже на экране) и отдаём в детектор только эту область — поэтому находится
+// именно то, что человек навёл в рамку, а не соседний штрих-код на этикетке.
+let nativeDetector = null;
+let nativeScanActive = false;
+let nativeScanRAFId = null;
+let nativeScanCanvas = null;
+let nativeScanCtx = null;
+
+function nativeDetectorSupported() {
+  return typeof window !== "undefined" && "BarcodeDetector" in window;
+}
+
+// Переводит координаты рамки-видоискателя (на экране, в CSS-пикселях) в
+// координаты внутри "сырого" видео (в его нативном разрешении) — с учётом
+// масштабирования object-fit:cover, из-за которого часть видео обрезается
+// по краям и координаты на экране НЕ равны координатам в самом видеопотоке.
+function computeViewfinderCropRect(videoEl) {
+  const vfEl = document.querySelector(".viewfinder");
+  if (!videoEl || !vfEl || !videoEl.videoWidth || !videoEl.videoHeight) return null;
+  const videoRect = videoEl.getBoundingClientRect();
+  const vfRect = vfEl.getBoundingClientRect();
+  const displayW = videoRect.width, displayH = videoRect.height;
+  if (!displayW || !displayH) return null;
+  const nativeW = videoEl.videoWidth, nativeH = videoEl.videoHeight;
+  const scale = Math.max(displayW / nativeW, displayH / nativeH); // object-fit:cover
+  const renderedW = nativeW * scale, renderedH = nativeH * scale;
+  const offsetX = (renderedW - displayW) / 2;
+  const offsetY = (renderedH - displayH) / 2;
+  const vfXinDisplay = vfRect.left - videoRect.left;
+  const vfYinDisplay = vfRect.top - videoRect.top;
+  let sx = (vfXinDisplay + offsetX) / scale;
+  let sy = (vfYinDisplay + offsetY) / scale;
+  let sw = vfRect.width / scale;
+  let sh = vfRect.height / scale;
+  sx = Math.max(0, Math.min(sx, nativeW - 1));
+  sy = Math.max(0, Math.min(sy, nativeH - 1));
+  sw = Math.max(1, Math.min(sw, nativeW - sx));
+  sh = Math.max(1, Math.min(sh, nativeH - sy));
+  return { sx, sy, sw, sh };
+}
+
+async function startNativeScanLoop() {
+  if (!nativeDetectorSupported()) return; // нет поддержки — остаёмся на html5-qrcode (fallback уже включён выше)
+  try {
+    let formats = ["code_128", "code_39"];
+    try {
+      const supported = await window.BarcodeDetector.getSupportedFormats();
+      const wanted = formats.filter(f => supported.includes(f));
+      if (wanted.length) formats = wanted;
+    } catch (e) { /* getSupportedFormats не у всех — используем список по умолчанию */ }
+    nativeDetector = new window.BarcodeDetector({ formats });
+  } catch (e) {
+    nativeDetector = null;
+    return; // конструктор не сработал — остаёмся на fallback через html5-qrcode
+  }
+  nativeScanCanvas = document.createElement("canvas");
+  nativeScanCtx = nativeScanCanvas.getContext("2d", { willReadFrequently: true });
+  nativeScanActive = true;
+  let busy = false;
+  const loop = async () => {
+    if (!nativeScanActive) return; // сканер закрыт — цикл остановлен
+    if (!scanLocked && !busy) {
+      busy = true;
+      try {
+        const videoEl = document.querySelector("#reader video");
+        if (videoEl && videoEl.readyState >= 2) {
+          const crop = computeViewfinderCropRect(videoEl);
+          if (crop && crop.sw > 4 && crop.sh > 4) {
+            const cw = Math.round(crop.sw), ch = Math.round(crop.sh);
+            if (nativeScanCanvas.width !== cw) nativeScanCanvas.width = cw;
+            if (nativeScanCanvas.height !== ch) nativeScanCanvas.height = ch;
+            nativeScanCtx.drawImage(videoEl, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, cw, ch);
+            const codes = await nativeDetector.detect(nativeScanCanvas);
+            if (codes && codes.length && nativeScanActive) onScanDecoded(codes[0].rawValue);
+          }
+        }
+      } catch (e) { /* иногда кадр не читается (камера ещё не готова и т.п.) — просто пробуем следующий */ }
+      busy = false;
+    }
+    if (nativeScanActive) nativeScanRAFId = requestAnimationFrame(loop);
+  };
+  nativeScanRAFId = requestAnimationFrame(loop);
+}
+
+function stopNativeScanLoop() {
+  nativeScanActive = false;
+  nativeDetector = null;
+  if (nativeScanRAFId) { cancelAnimationFrame(nativeScanRAFId); nativeScanRAFId = null; }
+  nativeScanCanvas = null; nativeScanCtx = null;
 }
 
 function setupTorchButton() {
@@ -1205,29 +1383,61 @@ function setupPinchZoom() {
   }, { passive: true });
 }
 
-// Распознавание камерой (html5-qrcode) — скорость настроена в openScanner()
-// (fps/аппаратный декодер/disableFlip); здесь только сама проверка формата
-// кода стала гибче (см. parseCode).
+// Распознавание камерой — скорость и точная область настроены в openScanner()
+// (см. также нативный BarcodeDetector-цикл ниже, startNativeScanLoop); здесь
+// разбор формата (parseCode) и реакция на все виды отказа: неверный формат,
+// код не из справочника СКЮ, дата производства ещё не наступила — на каждый
+// теперь есть и текст, и отдельный отклоняющий звук (двойной низкий сигнал),
+// а не тихое игнорирование кадра.
 let futureDateFlashTimer = null;
+let lastRejectText = "";
+let lastRejectAt = 0;
+const REJECT_REPEAT_COOLDOWN_MS = 1300; // не долбить звуком/текстом на каждый кадр одного и того же чужого кода
+
+function flashReject(message) {
+  const hint = document.getElementById("scanHintText");
+  hint.textContent = message;
+  hint.classList.add("warn-flash");
+  clearTimeout(futureDateFlashTimer);
+  futureDateFlashTimer = setTimeout(() => {
+    hint.textContent = SCAN_HINT_DEFAULT;
+    hint.classList.remove("warn-flash");
+  }, 2200);
+}
+
 function onScanDecoded(decodedText) {
   if (scanLocked) return; // пока открыта карточка ввода количества — новые кадры игнорируем
   const p = parseCode(decodedText);
-  if (!p) return; // не тот формат или код не из справочника СКЮ — тихо игнорируем кадр
+
+  if (!p.ok) {
+    // Код прочитан, но не подходит: либо это вообще не наш формат этикетки
+    // (случайный посторонний штрих-код), либо формат верный, а кода нет в
+    // справочнике СКЮ. Дебаунс — чтобы не долбить звуком на каждый кадр,
+    // пока камера не отведена от того же самого постороннего кода.
+    const now = Date.now();
+    if (decodedText === lastRejectText && now - lastRejectAt < REJECT_REPEAT_COOLDOWN_MS) return;
+    lastRejectText = decodedText; lastRejectAt = now;
+    playRejectBeep();
+    flashReject(p.reason === "unknown_sku"
+      ? `✕ Код «${p.lot}» не найден в справочнике СКЮ — игнорируется`
+      : `✕ Это не наша этикетка (не тот формат) — игнорируется`);
+    return;
+  }
+
   if (isFutureProdDate(p.isoDate)) {
     // Дата производства ещё не наступила — такой партии не может быть. Не
     // блокируем сканер карточкой ввода, а на секунду показываем причину
-    // отказа прямо в подсказке и продолжаем сканирование.
-    const hint = document.getElementById("scanHintText");
-    hint.textContent = `⚠ Дата ${p.displayDate} ещё не наступила — код проигнорирован`;
-    hint.classList.add("warn-flash");
-    clearTimeout(futureDateFlashTimer);
-    futureDateFlashTimer = setTimeout(() => {
-      hint.textContent = SCAN_HINT_DEFAULT;
-      hint.classList.remove("warn-flash");
-    }, 2200);
+    // отказа прямо в подсказке, со звуком, и продолжаем сканирование.
+    const now = Date.now();
+    if (decodedText === lastRejectText && now - lastRejectAt < REJECT_REPEAT_COOLDOWN_MS) return;
+    lastRejectText = decodedText; lastRejectAt = now;
+    playRejectBeep();
+    flashReject(`✕ Дата ${p.displayDate} ещё не наступила — код проигнорирован`);
     return;
   }
+
   scanLocked = true;
+  lastRejectText = "";
   playBeep(); // короткий сигнал об успешном сканировании (можно выключить кнопкой 🔊 рядом с фонариком)
   showQuickEntry(p);
 }
@@ -1274,20 +1484,74 @@ function closeQuickEntry() {
   scanLocked = false;
 }
 
+// Во время сканирования список внизу по умолчанию показывает только
+// последние 3 позиции (чтобы не загромождать экран камеры), но если
+// отсканировано больше — появляется "ручка" (по тапу или свайпом вверх/вниз),
+// которая разворачивает список целиком и сворачивает обратно.
+let scanListExpanded = false;
+
 function renderLast3() {
   const box = document.getElementById("scanLast3");
-  if (!box) return;
-  if (!cart.length) { box.innerHTML = ""; return; }
-  const startIdx = Math.max(0, cart.length - 3);
+  const body = document.getElementById("scanLastBody");
+  const handle = document.getElementById("scanListHandle");
+  const handleLabel = document.getElementById("scanListHandleLabel");
+  if (!box || !body) return;
+  if (!cart.length) {
+    body.innerHTML = "";
+    if (handle) handle.classList.add("hidden");
+    box.classList.remove("expanded");
+    return;
+  }
+  const showAll = scanListExpanded && cart.length > 3;
+  box.classList.toggle("expanded", showAll);
+  const startIdx = showAll ? 0 : Math.max(0, cart.length - 3);
   const items = cart.slice(startIdx);
-  box.innerHTML = `<div class="muted" style="margin-bottom:4px;">Последние отсканированные (можно удалить):</div>` +
+  body.innerHTML = `<div class="muted" style="margin-bottom:4px;">${showAll ? "Весь список" : "Последние отсканированные"} (можно удалить):</div>` +
     items.map((c, i) => {
       const realIdx = startIdx + i;
       return `<div class="scan-last-row"><span>Партия ${c.lot} · ${c.displayDate} · ${c.qty} шт</span><button onclick="window.__rm(${realIdx})">✕</button></div>`;
     }).reverse().join("");
+  if (handle) {
+    if (cart.length > 3) {
+      handle.classList.remove("hidden");
+      handleLabel.textContent = showAll ? `▲ Свернуть (показаны все — ${cart.length})` : `▼ Показать весь список (${cart.length})`;
+    } else {
+      handle.classList.add("hidden");
+    }
+  }
 }
 
+(function setupScanListHandle() {
+  const handle = document.getElementById("scanListHandle");
+  if (!handle) return;
+  const setExpanded = (v) => { scanListExpanded = v; renderLast3(); };
+  // Свайп вверх — развернуть, свайп вниз — свернуть, маленькое движение — тап (переключить).
+  // touchend помечает suppressClick, чтобы последующий "призрачный" click от той же
+  // сенсорной команды на мобильных не переключал состояние ещё раз (двойной тоггл).
+  let touchStartY = null;
+  let suppressClick = false;
+  handle.addEventListener("touchstart", (e) => {
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+  handle.addEventListener("touchend", (e) => {
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 400);
+    if (touchStartY == null) return;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    touchStartY = null;
+    const SWIPE_THRESHOLD = 18;
+    if (dy < -SWIPE_THRESHOLD) setExpanded(true);
+    else if (dy > SWIPE_THRESHOLD) setExpanded(false);
+    else setExpanded(!scanListExpanded);
+  }, { passive: true });
+  handle.addEventListener("click", () => {
+    if (suppressClick) return;
+    setExpanded(!scanListExpanded);
+  });
+})();
+
 function closeScanner() {
+  stopNativeScanLoop();
   if (html5QrCode) {
     html5QrCode.stop().then(() => { try { html5QrCode.clear(); } catch (e) {} }).catch(() => {});
   }
