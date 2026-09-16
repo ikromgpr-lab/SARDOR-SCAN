@@ -227,6 +227,14 @@
   .doc-queue-status.pending { background:var(--warn-bg); color:var(--warn-text); }
   .doc-queue-status.uploading { background:var(--red-light); color:var(--red); }
   .doc-queue-status.failed { background:var(--err-bg); color:var(--err-text); }
+
+  /* ---------- последние проведённые документы (у этого пользователя) ---------- */
+  #committedHistoryCard { border-left:5px solid var(--ok-border, #bfe8cc); }
+  .committed-row {
+    background:var(--bg); border-radius:10px; padding:9px 10px; font-size:12.5px; margin-top:8px;
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+  }
+  .committed-row .ch-status { font-size:11px; font-weight:700; color:var(--ok-text); white-space:nowrap; }
   .zoom-hint {
     position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:2;
     color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.45);
@@ -393,6 +401,14 @@
         </div>
         <div class="hint">Появляется, если «Провести весь список» не смог отправить документ (нет интернета или сервер не ответил) — список не потеряется, отправка повторится автоматически, как только появится связь.</div>
         <div id="docQueueList"></div>
+      </div>
+
+      <!-- Последние 3 документа, успешно проведённых ИМЕННО этим пользователем
+           (хранится в его браузере по логину) — видно сразу после проведения,
+           без разворачивания, для быстрой самопроверки "что я только что отправил". -->
+      <div class="card hidden" id="committedHistoryCard">
+        <b style="font-size:13px;">🕒 Последние проведённые документы</b>
+        <div id="committedHistoryList"></div>
       </div>
     </div>
 
@@ -821,6 +837,7 @@ async function showMain() {
   restoreCartDraft(); // если в прошлый раз список отсканированного не был проведён — предлагаем его вернуть
   loadDocQueue(); // документы, не выгруженные из-за отсутствия связи в прошлый раз
   attemptFlushDocQueue(); // на случай, если связь уже появилась к моменту нового входа
+  loadCommittedHistory(); // последние проведённые ЭТИМ пользователем документы
 }
 
 // ---------- вкладки (нижняя навигация) ----------
@@ -882,7 +899,12 @@ function setupModes() {
   } else if (ME.role === "Админ") {
     modes = [["in","Приход"], ["out_sgp","Отгрузка СГП→регион"], ["out_agent","Отгрузка агенту"], ["check","Сканирования"]];
   } else {
-    modes = [["in","Приход"], ["out_agent","Отгрузка агенту"], ["check","Сканирования"]];
+    // Региональные склады больше НЕ приходуют вручную ("Приход") — товар к ним
+    // попадает только через «Входящие» (там же, кнопкой «✅ Принять», когда
+    // отправитель — СГП или другой склад — уже провёл отгрузку в их адрес).
+    // Исключение — СГП и Админ (см. ветки выше): СГП оприходует сырьё из цехов,
+    // это не внутрискладская передача и с «Входящими» никак не связано.
+    modes = [["out_agent","Отгрузка агенту"], ["check","Сканирования"]];
   }
   modes.forEach(([id, label], i) => {
     const b = document.createElement("button");
@@ -1135,6 +1157,14 @@ function restoreCartDraft() {
   if (draft.mode && draft.mode !== currentMode) {
     const btn = document.querySelector(`.mode-btn[data-mode="${draft.mode}"]`);
     if (btn) { btn.click(); /* сбрасывает cart/currentMode/UI под нужный режим */ applyRestoredFields(); return; }
+    // Режима из черновика больше нет для этой роли (например, «Приход» убрали
+    // у региональных складов) — не подставляем список молча под ДРУГОЙ режим
+    // (там другие поля «откуда/куда», это будет неверно), а даём его увидеть
+    // и решить самостоятельно, что с ним делать.
+    const msg = document.getElementById("scanMsg");
+    if (msg) msg.innerHTML = `<div class="warn">↺ Найден несохранённый список (${savedCart.length} поз.) из режима, которого больше нет в этой роли. Он не восстановлен автоматически — если он ещё нужен, соберите его заново.</div>`;
+    try { localStorage.removeItem(cartDraftKey()); } catch (e) {}
+    return;
   }
   applyRestoredFields();
 }
@@ -1233,6 +1263,7 @@ async function attemptFlushDocQueue() {
         }
         docQueue = docQueue.filter(d => d.id !== doc.id);
         saveDocQueueStorage(); renderDocQueue();
+        recordCommittedDoc({ opName: doc.opName, from: doc.from, to: doc.to, itemCount: doc.itemCount, mode: doc.mode, viaQueue: true });
       } catch (e) {
         // Сетевая проблема — оставляем "pending"/"failed" и прекращаем на этом
         // проходе: если связи нет, следующие документы тоже не отправятся, а
@@ -1247,9 +1278,55 @@ async function attemptFlushDocQueue() {
     docQueueFlushing = false;
   }
 }
+// ---------- последние проведённые документы (у ЭТОГО пользователя) ----------
+// После любого успешного проведения (сразу или позже — из очереди выше)
+// показываем внизу последние 3 документа, которые провёл именно этот
+// пользователь. Хранится в его браузере по логину (committedHistory_<login>)
+// — то есть данные ДРУГОГО пользователя, вошедшего на этом же телефоне,
+// никогда не подмешиваются, у каждого своя история.
+let committedHistory = [];
+function committedHistoryKey() {
+  return "committedHistory_" + (ME && ME.login ? ME.login : "anon");
+}
+function loadCommittedHistory() {
+  committedHistory = [];
+  try {
+    const raw = localStorage.getItem(committedHistoryKey());
+    if (raw) committedHistory = JSON.parse(raw) || [];
+  } catch (e) { committedHistory = []; }
+  renderCommittedHistory();
+}
+function recordCommittedDoc(doc) {
+  committedHistory.push({ ...doc, completedAt: Date.now() });
+  if (committedHistory.length > 3) committedHistory = committedHistory.slice(-3);
+  try { localStorage.setItem(committedHistoryKey(), JSON.stringify(committedHistory)); } catch (e) {}
+  renderCommittedHistory();
+}
+function renderCommittedHistory() {
+  const card = document.getElementById("committedHistoryCard");
+  const list = document.getElementById("committedHistoryList");
+  if (!card || !list) return;
+  if (!committedHistory.length) { card.classList.add("hidden"); list.innerHTML = ""; return; }
+  card.classList.remove("hidden");
+  list.innerHTML = committedHistory.slice().reverse().map(d => `
+    <div class="committed-row">
+      <span><b>${d.opName || d.mode}</b> · ${d.itemCount} ${d.itemCount === 1 ? "поз." : "поз."} · ${d.from} → ${d.to} · ${new Date(d.completedAt).toLocaleString("ru-RU")}</span>
+      <span class="ch-status">✅ проведён</span>
+    </div>`).join("");
+}
+
 window.addEventListener("online", () => attemptFlushDocQueue());
-document.addEventListener("visibilitychange", () => { if (!document.hidden) attemptFlushDocQueue(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  attemptFlushDocQueue();
+  // Раньше счётчик "Входящие" обновлялся только один раз при входе — если
+  // склад-отправитель проводил отгрузку, пока получатель уже сидел в
+  // приложении, бейдж не менялся, пока не перелогиниться — выглядело как
+  // "не пришло" или "тормозит". Обновляем и здесь (вернулись в приложение).
+  if (ME && ME.role !== "Админ") refreshPendingBadge();
+});
 setInterval(() => attemptFlushDocQueue(), 20000); // подстраховка на случай, если событие "online" не сработало (бывает на некоторых мобильных браузерах)
+setInterval(() => { if (ME && ME.role !== "Админ") refreshPendingBadge(); }, 45000); // живой счётчик "Входящие" — не только при входе
 
 // Возвращает список того, чего не хватает для проведения ({from,to,cart}),
 // либо пустой массив, если всё заполнено. Общая проверка для updateCommitState()
@@ -1317,6 +1394,7 @@ document.getElementById("commitBtn").onclick = async () => {
     // localStorage, см. saveCartDraft() внутри renderCart()).
     cart = []; renderCart();
     showFloatingToast(`✅ Список проведён (${itemCount} ${itemCount === 1 ? "позиция" : "позиций"}) — уже отправлен, повторно отправлять не нужно`, "ok");
+    recordCommittedDoc({ opName, from, to, itemCount, mode: currentMode, viaQueue: false });
   } else if (serverRejected) {
     // Сервер ответил и явно отклонил документ — это не про интернет, повторная
     // отправка того же самого не поможет, поэтому НЕ ставим в очередь, а
@@ -1398,18 +1476,23 @@ function openScanner() {
   //   без потери работоспособности;
   // - disableFlip отключает лишнюю попытку распознать зеркально отражённый кадр
   //   (не нужна при обычном сканировании с задней камеры) — экономит время на кадр;
-  // - videoConstraints просит у камеры более высокий и стабильный fps потока и
-  //   максимально возможное разрешение (пробуем 4K, камера сама отдаст макс.
-  //   доступное, если 4K нет) — чем чётче картинка, тем увереннее декодер
-  //   читает мелкие и удалённые штрих-коды; после старта отдельно включаем
-  //   непрерывный автофокус (setupFocusMode) и зум щипком (setupPinchZoom) —
-  //   оба тоже напрямую помогают читать код издалека.
+  // - videoConstraints просит у камеры 1080p (Full HD) и стабильный fps — это
+  //   уже достаточно чётко для мелких штрих-кодов (плюс зум щипком и автофокус
+  //   ниже добавляют детали при необходимости), а вот 4K на слабых/бюджетных
+  //   телефонах наоборот ТОРМОЗИТ: камере тяжелее стримить такой поток стабильно,
+  //   и именно это часто ощущается как "долго сканирует" — раньше здесь стоял 4K,
+  //   но по факту он не оправдывает себя на массовых Android-телефонах.
   // Если браузер поддерживает нативный BarcodeDetector (Chrome/Android) — не
   // отдаём кадры на распознавание через html5-qrcode (это медленнее и не даёт
   // точно обрезать зону сканирования), а запускаем свой цикл ниже
   // (startNativeScanLoop), который берёт кадры НАПРЯМУЮ из video и обрезает
   // их ровно по рамке-видоискателю — поэтому сканируется именно то место,
-  // что в рамке, а не что-то рядом, и это заметно быстрее.
+  // что в рамке, а не что-то рядом, и это заметно быстрее. ВАЖНО: как только
+  // свой цикл запустился, СТАВИМ НА ПАУЗУ встроенное распознавание html5-qrcode
+  // через .pause(false) — иначе оба декодера одновременно разбирают КАЖДЫЙ
+  // кадр камеры (второй раз впустую, его результат всё равно игнорируется), и
+  // это удваивает нагрузку на процессор телефона — тоже прямая причина "долго
+  // сканирует" на не самых мощных устройствах.
   nativeScanActive = false;
   html5QrCode.start(
     { facingMode: "environment" },
@@ -1422,17 +1505,20 @@ function openScanner() {
       videoConstraints: {
         facingMode: "environment",
         frameRate: { ideal: 30, max: 30 },
-        width: { ideal: 3840 },
-        height: { ideal: 2160 }
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
       }
     },
     (text) => { if (!nativeScanActive) onScanDecoded(text); },
     () => {}
-  ).then(() => {
+  ).then(async () => {
     setupTorchButton();
     setupFocusMode();
     setupPinchZoom();
-    startNativeScanLoop();
+    const usingNative = await startNativeScanLoop();
+    if (usingNative) {
+      try { html5QrCode.pause(false); } catch (e) { /* pause недоступен в этой версии библиотеки — не критично, просто не экономим CPU */ }
+    }
   }).catch(err => {
     document.getElementById("scanHintText").textContent = "Камера недоступна: " + err;
   });
@@ -1485,8 +1571,11 @@ function computeViewfinderCropRect(videoEl) {
   return { sx, sy, sw, sh };
 }
 
+// Возвращает true, если нативный цикл реально запущен (тогда вызывающий код
+// ставит html5-qrcode на паузу — см. openScanner()), иначе false (остаёмся
+// на обычном html5-qrcode, его decode-callback уже активен по умолчанию).
 async function startNativeScanLoop() {
-  if (!nativeDetectorSupported()) return; // нет поддержки — остаёмся на html5-qrcode (fallback уже включён выше)
+  if (!nativeDetectorSupported()) return false; // нет поддержки — остаёмся на html5-qrcode (fallback уже включён выше)
   try {
     let formats = ["code_128", "code_39"];
     try {
@@ -1497,7 +1586,7 @@ async function startNativeScanLoop() {
     nativeDetector = new window.BarcodeDetector({ formats });
   } catch (e) {
     nativeDetector = null;
-    return; // конструктор не сработал — остаёмся на fallback через html5-qrcode
+    return false; // конструктор не сработал — остаёмся на fallback через html5-qrcode
   }
   nativeScanCanvas = document.createElement("canvas");
   nativeScanCtx = nativeScanCanvas.getContext("2d", { willReadFrequently: true });
@@ -1526,6 +1615,7 @@ async function startNativeScanLoop() {
     if (nativeScanActive) nativeScanRAFId = requestAnimationFrame(loop);
   };
   nativeScanRAFId = requestAnimationFrame(loop);
+  return true;
 }
 
 function stopNativeScanLoop() {
@@ -1816,9 +1906,13 @@ function closeScanner() {
 }
 
 // ---------- входящие (для регионов) ----------
+let pendingBadgeReqToken = 0;
 async function refreshPendingBadge() {
+  if (!ME) return;
+  const myToken = ++pendingBadgeReqToken;
   try {
     const r = await apiGet({ action: "pending", warehouse: ME.warehouse });
+    if (myToken !== pendingBadgeReqToken) return; // устаревший ответ — не перезаписываем более свежий счётчик
     document.getElementById("pendingBadge").textContent = (r.pending || []).length;
   } catch (e) {}
 }
@@ -1851,7 +1945,7 @@ window.__receive = async (id) => {
   if (btn) btn.disabled = true;
   if (errBox) errBox.innerHTML = "";
   try {
-    const res = await apiPost({ action: "receive", id, comment });
+    const res = await apiPost({ action: "receive", id, comment, user: ME.login, role: ME.role });
     if (!res || res.ok === false) throw new Error(res && res.error ? res.error : "сервер отклонил приёмку");
     loadPending();
     refreshPendingBadge();
@@ -1972,7 +2066,7 @@ document.getElementById("applySnapshotBtn").onclick = async () => {
 
 document.getElementById("snapshotNowBtn").onclick = async () => {
   try {
-    await apiPost({ action: "snapshotNow" });
+    await apiPost({ action: "snapshotNow", user: ME.login });
     alert("Снимок остатков сохранён в StockHistory.");
   } catch (e) { alert("Не удалось сохранить снимок: " + e); }
 };
@@ -2032,7 +2126,7 @@ document.getElementById("addUserBtn").onclick = async () => {
   if (!login) { msg.innerHTML = `<div class="err">Укажите логин</div>`; return; }
   if (!editingUserLogin && !password) { msg.innerHTML = `<div class="err">Для нового пользователя укажите пароль</div>`; return; }
   try {
-    await apiPost({ action: "addUser", login, password, role, warehouse });
+    await apiPost({ action: "addUser", login, password, role, warehouse, actor: ME.login });
     msg.innerHTML = `<div class="ok">Пользователь сохранён</div>`;
     resetUserForm();
     loadUsers();
@@ -2054,7 +2148,7 @@ window.__editUser = (login, role, warehouse) => {
 };
 window.__delUser = async (login) => {
   if (!confirm("Удалить пользователя " + login + "?")) return;
-  await apiPost({ action: "deleteUser", login });
+  await apiPost({ action: "deleteUser", login, actor: ME.login });
   if (editingUserLogin === login) resetUserForm();
   loadUsers();
 };
@@ -2077,13 +2171,13 @@ async function loadWarehousesAdmin() {
 document.getElementById("addWarehouseBtn").onclick = async () => {
   const name = document.getElementById("newWarehouseName").value.trim();
   if (!name) return;
-  await apiPost({ action: "addWarehouse", name });
+  await apiPost({ action: "addWarehouse", name, actor: ME.login });
   document.getElementById("newWarehouseName").value = "";
   loadWarehousesAdmin();
 };
 window.__delWh = async (name) => {
   if (!confirm("Удалить склад " + name + "?")) return;
-  await apiPost({ action: "deleteWarehouse", name });
+  await apiPost({ action: "deleteWarehouse", name, actor: ME.login });
   loadWarehousesAdmin();
 };
 window.__editWh = (oldName) => {
@@ -2105,7 +2199,7 @@ window.__saveWh = async (oldName) => {
   if (!newName) return;
   if (newName === oldName) { loadWarehousesAdmin(); return; }
   try {
-    const r = await apiPost({ action: "renameWarehouse", oldName, newName });
+    const r = await apiPost({ action: "renameWarehouse", oldName, newName, actor: ME.login });
     if (r && r.ok === false) { alert(r.error || "Не удалось переименовать склад"); return; }
     await loadWarehousesAdmin();
     await loadUsers();
@@ -2137,13 +2231,13 @@ function makeSimpleListAdmin(containerId, addBtnId, addInputId, getAction, addAc
     const input = document.getElementById(addInputId);
     const name = input.value.trim();
     if (!name) return;
-    await apiPost({ action: addAction, name });
+    await apiPost({ action: addAction, name, actor: ME.login });
     input.value = "";
     load();
   };
   window["__delSimple_" + containerId] = async (name) => {
     if (!confirm("Удалить «" + name + "»?")) return;
-    await apiPost({ action: delAction, name });
+    await apiPost({ action: delAction, name, actor: ME.login });
     load();
   };
   window["__editSimple_" + containerId] = (oldName) => {
@@ -2165,7 +2259,7 @@ function makeSimpleListAdmin(containerId, addBtnId, addInputId, getAction, addAc
     if (!newName) return;
     if (newName === oldName) { load(); return; }
     try {
-      const r = await apiPost({ action: renameAction, oldName, newName });
+      const r = await apiPost({ action: renameAction, oldName, newName, actor: ME.login });
       if (r && r.ok === false) { alert(r.error || "Не удалось переименовать"); return; }
       load();
     } catch (e) { alert("Ошибка: " + e); }
