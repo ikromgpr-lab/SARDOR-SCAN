@@ -599,6 +599,21 @@ function playRejectBeep() {
   } catch (e) { /* звук необязателен */ }
 }
 
+// ---------- общая утилита: не долбить сервер запросом на каждый чих ----------
+// Например, чек-лист складов ("Остатки"/"Сводка") раньше слал отдельный
+// медленный запрос к Google Таблице на КАЖДЫЙ клик по чекбоксу — если
+// отметить подряд 4-5 складов, улетало 4-5 запросов почти одновременно,
+// и пока они (медленно, это Google Apps Script) возвращались вразнобой,
+// экран мог на секунду-две "подвиснуть"/задёргаться. debounce() ждёт паузу
+// после последнего клика и шлёт только один запрос.
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 // ---------- фильтры: запоминаем выбор в пределах сессии (до выхода) ----------
 function saveFilter(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
 function loadFilter(key) { try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
@@ -1580,11 +1595,14 @@ async function refreshPendingBadge() {
     document.getElementById("pendingBadge").textContent = (r.pending || []).length;
   } catch (e) {}
 }
+let pendingReqToken = 0;
 async function loadPending() {
   const el = document.getElementById("pendingList");
   el.innerHTML = "Загрузка…";
+  const myToken = ++pendingReqToken;
   try {
     const r = await apiGet({ action: "pending", warehouse: ME.warehouse });
+    if (myToken !== pendingReqToken) return;
     const items = r.pending || [];
     if (items.length === 0) { el.innerHTML = "Нет ожидающих поставок."; return; }
     el.innerHTML = items.map(it => `
@@ -1596,7 +1614,7 @@ async function loadPending() {
         <button class="btn small" id="pendingBtn_${it.id}" style="margin-top:6px;" onclick="window.__receive('${it.id}')">✅ Принять</button>
         <div id="pendingErr_${it.id}"></div>
       </div>`).join("");
-  } catch (e) { el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
+  } catch (e) { if (myToken === pendingReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
 }
 window.__receive = async (id) => {
   const btn = document.getElementById("pendingBtn_" + id);
@@ -1654,6 +1672,13 @@ function selectedStockWarehouses() {
   const chosen = getWhChecked("snapWarehouses");
   return chosen.length ? chosen : null;
 }
+// stockReqToken защищает от "гонки" ответов: если пользователь быстро
+// щёлкнул несколько чекбоксов складов (или переключился на "снимок" и
+// обратно), уйдёт несколько запросов, и медленный Google Apps Script может
+// ответить на них НЕ в том порядке, в каком они были отправлены — без этой
+// защиты на экране мог остаться результат уже неактуального, более раннего
+// запроса. Применяем только самый последний по времени ЗАПУСКА ответ.
+let stockReqToken = 0;
 async function loadStock() {
   const el = document.getElementById("stockTable");
   el.innerHTML = "Загрузка…";
@@ -1661,15 +1686,18 @@ async function loadStock() {
   document.getElementById("stockScopeLabel").textContent = ME.role === "Админ"
     ? ("— текущие, " + (chosen ? "склады: " + chosen.join(", ") : "по всем складам"))
     : "— текущие, по вашему складу (" + ME.warehouse + ")";
+  const myToken = ++stockReqToken;
   try {
     const r = await apiGet({ action: "stock", warehouses: chosen ? chosen.join(",") : "ALL" });
+    if (myToken !== stockReqToken) return; // пришёл ответ на уже неактуальный запрос — игнорируем
     let rows = (r.stock || []).filter(s => s.qty !== 0);
     if (ME.role !== "Админ") rows = rows.filter(s => s.warehouse === ME.warehouse);
     rows.sort((a,b) => a.warehouse.localeCompare(b.warehouse) || a.lot.localeCompare(b.lot) || a.prodDate.localeCompare(b.prodDate));
     lastStockRows = rows;
     renderStockTable(rows, ME.role === "Админ");
-  } catch (e) { el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
+  } catch (e) { if (myToken === stockReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
 }
+const debouncedLoadStock = debounce(loadStock, 450);
 
 function renderStockTable(rows, showWarehouseCol, showDateCol) {
   const el = document.getElementById("stockTable");
@@ -1688,7 +1716,7 @@ function renderStockTable(rows, showWarehouseCol, showDateCol) {
 async function setupSnapshotFilter() {
   if (ME.role !== "Админ") return;
   document.getElementById("snapshotFilterCard").classList.remove("hidden");
-  renderWhChecklist("snapWarehouses", () => { saveFilter("flt_snapWarehouses", getWhChecked("snapWarehouses")); loadStock(); });
+  renderWhChecklist("snapWarehouses", () => { saveFilter("flt_snapWarehouses", getWhChecked("snapWarehouses")); debouncedLoadStock(); });
   restoreWhChecklist("snapWarehouses", loadFilter("flt_snapWarehouses"));
   const today = new Date().toISOString().slice(0,10);
   document.getElementById("snapDateFrom").value = loadFilter("flt_snapDateFrom") || today;
@@ -1706,11 +1734,13 @@ document.getElementById("applySnapshotBtn").onclick = async () => {
   document.getElementById("stockScopeLabel").textContent = `— снимок за период ${dateFrom} — ${dateTo}, ${chosen.length ? chosen.join(", ") : "все склады"}`;
   const el = document.getElementById("stockTable");
   el.innerHTML = "Загрузка…";
+  const myToken = ++stockReqToken; // делит счётчик с loadStock() — тот же #stockTable, та же защита от гонки ответов
   try {
     const r = await apiGet({ action: "snapshot", warehouses, dateFrom, dateTo });
+    if (myToken !== stockReqToken) return;
     lastStockRows = r.snapshot || [];
     renderStockTable(lastStockRows, true, true);
-  } catch (e) { el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
+  } catch (e) { if (myToken === stockReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
 };
 
 document.getElementById("snapshotNowBtn").onclick = async () => {
@@ -1933,7 +1963,7 @@ function setupSummaryTab() {
     whRow.classList.remove("hidden");
     const el = document.getElementById("summaryWarehouses");
     if (!el.dataset.filled) {
-      renderWhChecklist("summaryWarehouses", () => { saveFilter("flt_summaryWarehouses", getWhChecked("summaryWarehouses")); loadSummary(); });
+      renderWhChecklist("summaryWarehouses", () => { saveFilter("flt_summaryWarehouses", getWhChecked("summaryWarehouses")); debouncedLoadSummary(); });
       restoreWhChecklist("summaryWarehouses", loadFilter("flt_summaryWarehouses"));
       el.dataset.filled = "1";
     }
@@ -1946,6 +1976,7 @@ document.getElementById("summaryDate").addEventListener("change", () => saveFilt
 document.getElementById("applySummaryBtn").onclick = loadSummary;
 document.getElementById("summaryWhClearBtn").onclick = () => { clearWhChecklist("summaryWarehouses"); saveFilter("flt_summaryWarehouses", []); loadSummary(); };
 
+let summaryReqToken = 0; // та же защита от гонки ответов, что и у stockReqToken выше
 async function loadSummary() {
   const el = document.getElementById("summaryResult");
   el.innerHTML = "Загрузка…";
@@ -1958,11 +1989,14 @@ async function loadSummary() {
   } else {
     warehouses = ME.warehouse;
   }
+  const myToken = ++summaryReqToken;
   try {
     const r = await apiGet({ action: "summary", opType, date, warehouses });
+    if (myToken !== summaryReqToken) return;
     renderSummary(r);
-  } catch (e) { el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
+  } catch (e) { if (myToken === summaryReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
 }
+const debouncedLoadSummary = debounce(loadSummary, 450);
 
 function ddmmyyyy(iso) { return (iso || "").split("-").reverse().join("."); }
 function statusPill(status) {
