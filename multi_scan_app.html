@@ -210,6 +210,23 @@
     border-radius:10px; padding:8px 10px; font-size:12.5px; margin-bottom:6px;
   }
   .scan-last-row button { background:var(--err-bg); border:1px solid var(--err-border); color:var(--err-text); border-radius:6px; padding:3px 9px; font-size:11px; }
+
+  /* ---------- очередь документов, не выгруженных из-за отсутствия связи ---------- */
+  #docQueueCard { border-left:5px solid var(--warn-border, #e8b84b); }
+  .doc-queue-handle {
+    display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; touch-action:pan-y; padding-bottom:2px;
+  }
+  .doc-queue-handle .grip { width:30px; height:4px; border-radius:3px; background:var(--border, #d8d8d8); flex:0 0 auto; }
+  #docQueueList { margin-top:8px; max-height:0; overflow:hidden; transition:max-height .25s ease; }
+  #docQueueCard.expanded #docQueueList { max-height:60vh; overflow-y:auto; }
+  .doc-queue-row {
+    background:var(--bg); border-radius:10px; padding:9px 10px; font-size:12.5px; margin-bottom:6px;
+  }
+  .doc-queue-row .dq-top { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:2px; }
+  .doc-queue-status { font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; white-space:nowrap; }
+  .doc-queue-status.pending { background:var(--warn-bg); color:var(--warn-text); }
+  .doc-queue-status.uploading { background:var(--red-light); color:var(--red); }
+  .doc-queue-status.failed { background:var(--err-bg); color:var(--err-text); }
   .zoom-hint {
     position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:2;
     color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.45);
@@ -364,6 +381,18 @@
         <div class="muted" id="commitHint"></div>
         <button class="btn secondary" id="clearCartBtn">Очистить список</button>
         <div class="hint">Удаляет весь список без отправки на сервер — используйте, если начали заново.</div>
+      </div>
+
+      <!-- Документы, которые "Провести" не смог отправить сразу (нет интернета/сервер
+           не ответил) — ждут здесь и автоматически досылаются, когда связь появится.
+           Пока документ не подтверждён сервером как выгруженный, он ОТСЮДА НЕ ПРОПАДАЕТ. -->
+      <div class="card hidden" id="docQueueCard">
+        <div class="doc-queue-handle" id="docQueueHandle">
+          <span class="grip"></span>
+          <b style="font-size:13px;">📄 Ожидают выгрузки в Google Таблицу <span class="badge" id="docQueueCount">0</span></b>
+        </div>
+        <div class="hint">Появляется, если «Провести весь список» не смог отправить документ (нет интернета или сервер не ответил) — список не потеряется, отправка повторится автоматически, как только появится связь.</div>
+        <div id="docQueueList"></div>
       </div>
     </div>
 
@@ -790,6 +819,8 @@ async function showMain() {
   applyModeUI(); // подставляем реальные списки складов/агентов/цехов в поля текущего режима
   setupSnapshotFilter(); // чек-лист складов в "Остатках" тоже зависит от warehousesList
   restoreCartDraft(); // если в прошлый раз список отсканированного не был проведён — предлагаем его вернуть
+  loadDocQueue(); // документы, не выгруженные из-за отсутствия связи в прошлый раз
+  attemptFlushDocQueue(); // на случай, если связь уже появилась к моменту нового входа
 }
 
 // ---------- вкладки (нижняя навигация) ----------
@@ -1108,6 +1139,118 @@ function restoreCartDraft() {
   applyRestoredFields();
 }
 
+// ---------- очередь документов, не выгруженных из-за отсутствия связи ----------
+// Если «Провести весь список» не смог достучаться до Google Таблицы (нет
+// интернета, сервер не ответил за 30 сек и т.п.) — документ не теряется и не
+// остаётся молча в статусе "ошибка": он попадает в эту очередь, хранится в
+// localStorage (переживает перезагрузку страницы) и автоматически досылается,
+// как только появится связь (событие "online", периодическая проверка раз в
+// 20 сек, и при каждом новом входе в приложение). Пока сервер не подтвердил
+// приём — документ ИЗ ОЧЕРЕДИ НЕ ПРОПАДАЕТ.
+let docQueue = [];
+let docQueueExpanded = false;
+let docQueueFlushing = false;
+
+function docQueueKey() {
+  return "docQueue_" + (ME && ME.login ? ME.login : "anon");
+}
+function saveDocQueueStorage() {
+  try { localStorage.setItem(docQueueKey(), JSON.stringify(docQueue)); } catch (e) {}
+}
+function loadDocQueue() {
+  docQueue = [];
+  try {
+    const raw = localStorage.getItem(docQueueKey());
+    if (raw) docQueue = JSON.parse(raw) || [];
+  } catch (e) { docQueue = []; }
+  // Документ, который в прошлый раз "завис" в статусе "отправляется" (страницу
+  // закрыли посреди запроса), на самом деле не отправляется — иначе он навсегда
+  // остался бы с крутящимся статусом. Возвращаем его в "ожидает".
+  docQueue.forEach(d => { if (d.status === "uploading") d.status = "pending"; });
+  renderDocQueue();
+}
+function enqueueDoc(doc) {
+  docQueue.push({
+    id: "dq_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+    createdAt: Date.now(),
+    status: "pending",
+    lastError: null,
+    ...doc
+  });
+  saveDocQueueStorage();
+  renderDocQueue();
+}
+function renderDocQueue() {
+  const card = document.getElementById("docQueueCard");
+  const list = document.getElementById("docQueueList");
+  const countEl = document.getElementById("docQueueCount");
+  if (!card || !list) return;
+  if (!docQueue.length) { card.classList.add("hidden"); list.innerHTML = ""; return; }
+  card.classList.remove("hidden");
+  card.classList.toggle("expanded", docQueueExpanded);
+  countEl.textContent = docQueue.length;
+  const statusLabel = { pending: "⏳ ожидает связи", uploading: "🔄 отправляется…", failed: "⚠ не удалось, повторим" };
+  list.innerHTML = docQueue.slice().reverse().map(d => `
+    <div class="doc-queue-row">
+      <div class="dq-top">
+        <span><b>${d.opName || d.mode}</b> · ${d.itemCount} ${d.itemCount === 1 ? "поз." : "поз."} · ${d.from} → ${d.to}</span>
+        <span class="doc-queue-status ${d.status}">${statusLabel[d.status] || d.status}</span>
+      </div>
+      <div class="muted" style="font-size:11px;">${new Date(d.createdAt).toLocaleString("ru-RU")}${d.lastError ? " · " + d.lastError : ""}</div>
+    </div>`).join("");
+}
+(function setupDocQueueHandle() {
+  const handle = document.getElementById("docQueueHandle");
+  if (!handle) return;
+  handle.addEventListener("click", () => { docQueueExpanded = !docQueueExpanded; renderDocQueue(); });
+})();
+
+// Отправляет по очереди все документы, ждущие связи. Идёт строго по одному
+// (не параллельно) — если сети правда нет, первая же попытка это покажет, и
+// нет смысла ждать тайм-аута ещё N раз подряд для остальных документов.
+async function attemptFlushDocQueue() {
+  if (docQueueFlushing || !docQueue.length) return;
+  docQueueFlushing = true;
+  try {
+    for (const doc of docQueue.slice()) {
+      if (!docQueue.includes(doc)) continue; // мог быть удалён параллельно (не должно, но на всякий случай)
+      doc.status = "uploading";
+      renderDocQueue();
+      try {
+        const res = await apiPost({
+          action: "commit", user: ME.login, role: ME.role, operation: doc.opName,
+          from: doc.from, to: doc.to, items: doc.items
+        });
+        if (res && res.ok === false) {
+          // Сервер ответил, но отклонил документ (не проблема связи) — повторная
+          // отправка того же самого не поможет, поэтому оставляем в очереди как
+          // "failed" с объяснением, но дальше по очереди НЕ идём молча — это уже
+          // не про интернет, а про содержимое документа, пусть пользователь увидит.
+          doc.status = "failed";
+          doc.lastError = res.error || "сервер отклонил документ";
+          saveDocQueueStorage(); renderDocQueue();
+          break;
+        }
+        docQueue = docQueue.filter(d => d.id !== doc.id);
+        saveDocQueueStorage(); renderDocQueue();
+      } catch (e) {
+        // Сетевая проблема — оставляем "pending"/"failed" и прекращаем на этом
+        // проходе: если связи нет, следующие документы тоже не отправятся, а
+        // очередной bce попытается снова по событию "online" / таймеру.
+        doc.status = "failed";
+        doc.lastError = "нет связи с сервером";
+        saveDocQueueStorage(); renderDocQueue();
+        break;
+      }
+    }
+  } finally {
+    docQueueFlushing = false;
+  }
+}
+window.addEventListener("online", () => attemptFlushDocQueue());
+document.addEventListener("visibilitychange", () => { if (!document.hidden) attemptFlushDocQueue(); });
+setInterval(() => attemptFlushDocQueue(), 20000); // подстраховка на случай, если событие "online" не сработало (бывает на некоторых мобильных браузерах)
+
 // Возвращает список того, чего не хватает для проведения ({from,to,cart}),
 // либо пустой массив, если всё заполнено. Общая проверка для updateCommitState()
 // (визуальный вид кнопки) и для самого нажатия (что показать в уведомлении).
@@ -1151,15 +1294,21 @@ document.getElementById("commitBtn").onclick = async () => {
   const msg = document.getElementById("scanMsg");
   const opName = { in: "Приход", out_sgp: "Отгрузка (СГП)", out_agent: "Отгрузка агенту", check: "Сканирование" }[currentMode];
   const originalLabel = btn.textContent;
-  const itemCount = cart.length; // запоминаем ДО отправки — ниже cart обнулится при успехе
+  const itemCount = cart.length; // запоминаем ДО отправки — ниже cart обнулится и при успехе, и при постановке в очередь
+  const itemsSnapshot = cart.map(c => ({ lot: c.lot, prodDate: c.isoDate, qty: c.qty }));
   btn.disabled = true; // здесь — настоящий disabled: идёт реальная отправка, второе нажатие исключаем полностью
   btn.textContent = "⏳ Отправка на сервер...";
   msg.innerHTML = `<div class="hint">Отправляем ${itemCount} ${itemCount === 1 ? "позицию" : "позиций"} в Google Таблицу — это может занять несколько секунд...</div>`;
+
+  let networkFailure = null, serverRejected = null;
   try {
-    await apiPost({
-      action: "commit", user: ME.login, role: ME.role, operation: opName,
-      from, to, items: cart.map(c => ({ lot: c.lot, prodDate: c.isoDate, qty: c.qty }))
-    });
+    const res = await apiPost({ action: "commit", user: ME.login, role: ME.role, operation: opName, from, to, items: itemsSnapshot });
+    if (res && res.ok === false) serverRejected = res.error || "сервер отклонил документ";
+  } catch (e) {
+    networkFailure = e; // нет связи / сервер не ответил за 30 сек (см. fetchWithTimeout)
+  }
+
+  if (!networkFailure && !serverRejected) {
     msg.innerHTML = currentMode === "check"
       ? `<div class="ok">Отчёт сканирования отправлен (${itemCount} позиций). Появится в «Сводке» — на остатки не влияет.</div>`
       : `<div class="ok">Документ проведён (${itemCount} партий). Данные отправлены в Google Таблицу.</div>`;
@@ -1168,14 +1317,28 @@ document.getElementById("commitBtn").onclick = async () => {
     // localStorage, см. saveCartDraft() внутри renderCart()).
     cart = []; renderCart();
     showFloatingToast(`✅ Список проведён (${itemCount} ${itemCount === 1 ? "позиция" : "позиций"}) — уже отправлен, повторно отправлять не нужно`, "ok");
-  } catch (e) {
-    msg.innerHTML = `<div class="err">Не удалось отправить на сервер: ${e}. Проверьте подключение к интернету и попробуйте снова — список позиций сохранён.</div>`;
-    showFloatingToast("⚠ Не удалось отправить — список сохранён, попробуйте ещё раз", "warn");
-  } finally {
-    btn.disabled = false; // снимаем "настоящий" disabled — дальше видом кнопки снова управляет updateCommitState()
-    btn.textContent = originalLabel;
-    updateCommitState();
+  } else if (serverRejected) {
+    // Сервер ответил и явно отклонил документ — это не про интернет, повторная
+    // отправка того же самого не поможет, поэтому НЕ ставим в очередь, а
+    // оставляем список как есть, чтобы пользователь его поправил.
+    msg.innerHTML = `<div class="err">Сервер отклонил документ: ${serverRejected}. Список сохранён — исправьте и попробуйте снова.</div>`;
+    showFloatingToast("⚠ Сервер отклонил документ — список сохранён", "warn");
+  } else {
+    // Проблема со связью — не теряем документ и не заставляем нажимать кнопку
+    // повторно: ставим в очередь (она в «Ожидают выгрузки» ниже, никуда не
+    // денется, пока сервер не подтвердит приём) и отправка повторится сама.
+    enqueueDoc({ opName, from, to, items: itemsSnapshot, itemCount, mode: currentMode });
+    cart = []; renderCart();
+    msg.innerHTML = `<div class="warn">📡 Нет связи с сервером (${networkFailure}). Документ (${itemCount} ${itemCount === 1 ? "позиция" : "позиций"}) поставлен в очередь ниже, в «Ожидают выгрузки» — отправится автоматически, как только появится интернет.</div>`;
+    showFloatingToast("📡 Нет связи — документ поставлен в очередь на отправку", "warn");
+    // Повторную попытку намеренно НЕ делаем прямо сейчас — только что был тайм-аут
+    // (до 30 сек), почти наверняка сеть всё ещё недоступна. Досылкой займутся
+    // событие "online" и фоновая проверка раз в 20 сек (см. ниже по файлу) —
+    // так пользователь не ждёт ещё один тайм-аут сразу же после первого.
   }
+  btn.disabled = false; // снимаем "настоящий" disabled — дальше видом кнопки снова управляет updateCommitState()
+  btn.textContent = originalLabel;
+  updateCommitState();
 };
 
 document.getElementById("toggleManualBtn").onclick = () => {
