@@ -99,6 +99,11 @@
   .btn.ghost { background:transparent; color:var(--red); border:1px solid var(--red); }
   .btn.small { width:auto; padding:8px 14px; font-size:12.5px; margin:0; }
   .btn:disabled { background:#d8dde6; color:#8b95a5; cursor:not-allowed; }
+  /* "Мягкое" отключение — визуально как :disabled, но БЕЗ атрибута disabled,
+     то есть кнопка всё ещё принимает нажатия. Нужно для commitBtn: тапнув по
+     ней при незаполненных полях, пользователь должен увидеть объяснение
+     (всплывающее уведомление), а не просто "мёртвую" кнопку без реакции. */
+  .btn.soft-disabled { background:#d8dde6; color:#8b95a5; }
   .login-footer { text-align:center; margin-top:16px; font-size:11px; color:#b0a8a6; }
 
   /* ---------- ОБЩИЕ ЭЛЕМЕНТЫ ---------- */
@@ -250,9 +255,26 @@
     }
     .viewfinder { top:50%; left:50%; width:56%; max-width:440px; height:170px; }
   }
+  /* ---------- плавающее уведомление (тост) ---------- */
+  .floating-toast {
+    position:fixed; left:50%; top:max(14px, env(safe-area-inset-top));
+    transform:translate(-50%,-140%); z-index:9999; max-width:min(92vw, 420px);
+    background:#222; color:#fff; padding:11px 16px; border-radius:12px;
+    font-size:13.5px; font-weight:600; line-height:1.4; text-align:center;
+    box-shadow:0 6px 20px rgba(0,0,0,.25); pointer-events:none; opacity:0;
+    transition:transform .25s ease, opacity .25s ease;
+  }
+  .floating-toast.show { transform:translate(-50%,0); opacity:1; }
+  .floating-toast.warn { background:var(--err-bg, #fdecec); color:var(--err-text, #a11d2e); border:1px solid var(--err-border, #f3b7b7); }
+  .floating-toast.ok { background:var(--ok-bg, #eafaf0); color:var(--ok-text, #147a3d); border:1px solid var(--ok-border, #b6e8c9); }
 </style>
 </head>
 <body>
+
+<!-- Плавающее уведомление (тост) — короткое сообщение поверх экрана, само
+     исчезает через пару секунд и никогда не перекрывает нажатия (pointer-events:none),
+     поэтому не может "мешать" следующему касанию. -->
+<div class="floating-toast" id="floatingToast"></div>
 
 <!-- ЭКРАН ВХОДА -->
 <div id="loginScreen">
@@ -337,7 +359,7 @@
       <div class="card hidden" id="cartCard">
         <b style="font-size:13px;">Текущий документ <span class="badge" id="cartCount">0</span></b>
         <div id="cartList"></div>
-        <button class="btn" id="commitBtn" disabled>✅ Провести весь список</button>
+        <button class="btn soft-disabled" id="commitBtn">✅ Провести весь список</button>
         <div class="hint">Отправляет ВСЕ позиции из списка выше в Google Таблицу одной операцией.</div>
         <div class="muted" id="commitHint"></div>
         <button class="btn secondary" id="clearCartBtn">Очистить список</button>
@@ -612,6 +634,20 @@ function debounce(fn, ms) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   };
+}
+
+// ---------- плавающее уведомление (тост) — короткое сообщение сверху
+// экрана, которое само пропадает через пару секунд. pointer-events:none
+// гарантирует, что оно никогда не перехватывает касания — то есть не может
+// физически "мешать" следующему нажатию, даже пока ещё видно на экране.
+let floatingToastTimer = null;
+function showFloatingToast(message, type) {
+  const el = document.getElementById("floatingToast");
+  if (!el) return;
+  el.textContent = message;
+  el.className = "floating-toast show" + (type ? " " + type : "");
+  clearTimeout(floatingToastTimer);
+  floatingToastTimer = setTimeout(() => { el.classList.remove("show"); }, 2600);
 }
 
 // ---------- фильтры: запоминаем выбор в пределах сессии (до выхода) ----------
@@ -1072,15 +1108,26 @@ function restoreCartDraft() {
   applyRestoredFields();
 }
 
-function updateCommitState() {
-  const btn = document.getElementById("commitBtn");
-  const hint = document.getElementById("commitHint");
+// Возвращает список того, чего не хватает для проведения ({from,to,cart}),
+// либо пустой массив, если всё заполнено. Общая проверка для updateCommitState()
+// (визуальный вид кнопки) и для самого нажатия (что показать в уведомлении).
+function commitMissingFields() {
   const from = getFrom(), to = getTo();
   const missing = [];
   if (!from) missing.push("Откуда");
   if (!to) missing.push("Куда");
   if (cart.length === 0) missing.push("хотя бы одна позиция с количеством");
-  btn.disabled = missing.length > 0;
+  return missing;
+}
+function updateCommitState() {
+  const btn = document.getElementById("commitBtn");
+  const hint = document.getElementById("commitHint");
+  const missing = commitMissingFields();
+  // Кнопка НЕ делается по-настоящему disabled (см. .soft-disabled в CSS) —
+  // только выглядит неактивной, но остаётся кликабельной, чтобы нажатие на
+  // неё при незаполненных полях могло показать всплывающее предупреждение
+  // (см. обработчик клика ниже), а не просто ничего не делать.
+  btn.classList.toggle("soft-disabled", missing.length > 0);
   hint.textContent = missing.length ? `Нельзя провести: не заполнено — ${missing.join(", ")}` : "";
 }
 document.getElementById("fromSelect").addEventListener("change", updateCommitState);
@@ -1088,27 +1135,44 @@ document.getElementById("toSelect").addEventListener("change", updateCommitState
 document.getElementById("toInput").addEventListener("input", updateCommitState);
 
 document.getElementById("commitBtn").onclick = async () => {
+  const btn = document.getElementById("commitBtn");
+  if (btn.disabled) return; // защита от повторного нажатия, пока уже идёт отправка (см. ниже)
+
+  // Кнопка больше не "мёртвая" (не настоящий disabled) при незаполненных полях —
+  // нажатие на неё показывает всплывающее предупреждение (само исчезает через
+  // ~2.6 сек и не перекрывает экран для следующего касания), а не молчит.
+  const missing = commitMissingFields();
+  if (missing.length) {
+    showFloatingToast(`⚠ Нельзя провести: не заполнено — ${missing.join(", ")}`, "warn");
+    return;
+  }
+
   const from = getFrom(), to = getTo();
   const msg = document.getElementById("scanMsg");
   const opName = { in: "Приход", out_sgp: "Отгрузка (СГП)", out_agent: "Отгрузка агенту", check: "Сканирование" }[currentMode];
-  const btn = document.getElementById("commitBtn");
-  if (btn.disabled) return; // защита от повторного нажатия, пока уже идёт отправка
   const originalLabel = btn.textContent;
-  btn.disabled = true;
+  const itemCount = cart.length; // запоминаем ДО отправки — ниже cart обнулится при успехе
+  btn.disabled = true; // здесь — настоящий disabled: идёт реальная отправка, второе нажатие исключаем полностью
   btn.textContent = "⏳ Отправка на сервер...";
-  msg.innerHTML = `<div class="hint">Отправляем ${cart.length} ${cart.length === 1 ? "позицию" : "позиций"} в Google Таблицу — это может занять несколько секунд...</div>`;
+  msg.innerHTML = `<div class="hint">Отправляем ${itemCount} ${itemCount === 1 ? "позицию" : "позиций"} в Google Таблицу — это может занять несколько секунд...</div>`;
   try {
     await apiPost({
       action: "commit", user: ME.login, role: ME.role, operation: opName,
       from, to, items: cart.map(c => ({ lot: c.lot, prodDate: c.isoDate, qty: c.qty }))
     });
     msg.innerHTML = currentMode === "check"
-      ? `<div class="ok">Отчёт сканирования отправлен (${cart.length} позиций). Появится в «Сводке» — на остатки не влияет.</div>`
-      : `<div class="ok">Документ проведён (${cart.length} партий). Данные отправлены в Google Таблицу.</div>`;
+      ? `<div class="ok">Отчёт сканирования отправлен (${itemCount} позиций). Появится в «Сводке» — на остатки не влияет.</div>`
+      : `<div class="ok">Документ проведён (${itemCount} партий). Данные отправлены в Google Таблицу.</div>`;
+    // Список уже отправлен и сохранён на сервере — очищаем его здесь, поэтому
+    // на экране он больше не отображается (и заодно стирается черновик из
+    // localStorage, см. saveCartDraft() внутри renderCart()).
     cart = []; renderCart();
+    showFloatingToast(`✅ Список проведён (${itemCount} ${itemCount === 1 ? "позиция" : "позиций"}) — уже отправлен, повторно отправлять не нужно`, "ok");
   } catch (e) {
     msg.innerHTML = `<div class="err">Не удалось отправить на сервер: ${e}. Проверьте подключение к интернету и попробуйте снова — список позиций сохранён.</div>`;
+    showFloatingToast("⚠ Не удалось отправить — список сохранён, попробуйте ещё раз", "warn");
   } finally {
+    btn.disabled = false; // снимаем "настоящий" disabled — дальше видом кнопки снова управляет updateCommitState()
     btn.textContent = originalLabel;
     updateCommitState();
   }
