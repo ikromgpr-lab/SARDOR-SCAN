@@ -228,6 +228,29 @@
   .scan-hint-text.warn-flash { color:var(--err-text, #a11d2e); font-weight:700; }
   .scan-mode-label { text-align:center; font-size:11.5px; color:var(--mode-color, var(--red)); font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.02em; }
   .scan-quick-info { font-size:14px; margin-bottom:2px; }
+
+  /* ---------- модальное окно ввода количества (по центру видимой области) ----------
+     #scanQuickEntry — прямой потомок .scan-overlay (position:fixed), поэтому
+     position:absolute; inset:0 здесь растягивается ровно на ту область,
+     которую pinScanOverlayToViewport() уже подгоняет под window.visualViewport
+     (т.е. под экран БЕЗ учёта открытой системной клавиатуры — см. комментарий
+     у pinScanOverlayToViewport ниже по файлу). Флекс-центрирование внутри
+     автоматически пересчитывает центр карточки при каждом изменении этой
+     области — при открытии клавиатуры карточка сама "всплывает" выше нужно и
+     никогда ею не перекрывается, без какого-либо доп. JS. */
+  .qty-modal-overlay {
+    position:absolute; inset:0; z-index:60; display:flex; align-items:center; justify-content:center;
+    padding:16px; background:rgba(0,0,0,.55);
+  }
+  .qty-modal-card {
+    background:#fff; border-radius:18px; padding:20px 18px calc(env(safe-area-inset-bottom,0px) + 18px);
+    width:100%; max-width:340px; box-shadow:0 14px 44px rgba(0,0,0,.4); max-height:90%; overflow-y:auto;
+  }
+  .qty-modal-card .scan-quick-info { text-align:center; font-size:15px; }
+  .qty-modal-card .lbl { text-align:center; }
+  /* Поле — крупное и по центру, чтобы было легко попасть пальцем и сразу
+     видно набранное число даже под приподнявшейся клавиатурой. */
+  .qty-modal-card input#qeQty { text-align:center; font-size:28px; font-weight:700; padding:14px 10px; }
   .scan-last3 { margin:10px 0 4px; }
   .scan-list-handle {
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
@@ -649,19 +672,6 @@
   <div class="scan-sheet">
     <div class="scan-mode-label" id="scanModeLabel"></div>
 
-    <div id="scanQuickEntry" class="hidden">
-      <div class="scan-quick-info">Партия <b id="qeLot"></b> · <span id="qeDate"></span></div>
-      <div id="qeDateWarn"></div>
-      <div class="row2">
-        <div style="flex:2;">
-          <label class="lbl">Количество, шт</label>
-          <input type="number" id="qeQty" inputmode="numeric" placeholder="Кол-во" />
-        </div>
-      </div>
-      <button class="btn" id="qeAddBtn">✓ Добавить и продолжить сканирование</button>
-      <button class="btn secondary" id="qeCancelBtn">Отменить этот скан</button>
-    </div>
-
     <div id="scanCheckResult" class="hidden">
       <div id="scanCheckMsg"></div>
       <button class="btn" id="scanCheckOkBtn">Понятно, сканировать дальше</button>
@@ -678,6 +688,25 @@
     </div>
 
     <button class="btn" id="scanDoneBtn">✅ Готово</button>
+  </div>
+
+  <!-- Ввод количества после успешного скана — раньше был частью нижней
+       панели (.scan-sheet) и на телефоне системная клавиатура перекрывала
+       кнопку «Отменить» и список последних сканов. Теперь это отдельное
+       модальное окно-виджет ПОВЕРХ всего сканера, всегда по центру ВИДИМОЙ
+       (не закрытой клавиатурой) области экрана — см. .qty-modal-overlay в
+       CSS и комментарий там же. Поле количества — только цифры
+       (inputmode="numeric" + pattern="[0-9]*"), без лишних символов на
+       клавиатуре. -->
+  <div id="scanQuickEntry" class="hidden qty-modal-overlay">
+    <div class="qty-modal-card">
+      <div class="scan-quick-info">Партия <b id="qeLot"></b> · <span id="qeDate"></span></div>
+      <div id="qeDateWarn"></div>
+      <label class="lbl">Количество, шт</label>
+      <input type="text" id="qeQty" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Кол-во" />
+      <button class="btn" id="qeAddBtn">✓ Добавить и продолжить сканирование</button>
+      <button class="btn secondary" id="qeCancelBtn">Отменить этот скан</button>
+    </div>
   </div>
 </div>
 
@@ -1560,15 +1589,11 @@ updateScanSoundBtn();
 document.getElementById("qeCancelBtn").onclick = closeQuickEntry;
 document.getElementById("scanCheckOkBtn").onclick = closeQuickEntry;
 document.getElementById("qeAddBtn").onclick = confirmQuickEntry;
-// Доп. подстраховка: когда открывается клавиатура для ввода количества,
-// подскролливаем поле в видимую область (после того как визуальный вьюпорт
-// уже подстроился — небольшая задержка) — чтобы поле и кнопки под ним точно
-// не оставались за клавиатурой даже на нестандартных браузерах.
-document.getElementById("qeQty").addEventListener("focus", () => {
-  setTimeout(() => {
-    try { document.getElementById("qeQty").scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
-  }, 300);
-});
+// Раньше здесь была подстраховка со scrollIntoView() для поля количества —
+// она была нужна, пока карточка ввода была частью прокручиваемой нижней
+// панели (.scan-sheet). Теперь #scanQuickEntry — отдельное модальное окно,
+// всегда по центру видимой области экрана (см. .qty-modal-overlay в CSS),
+// поэтому дополнительный скролл больше не требуется.
 
 // ---------- фиксация оверлея сканера под видимую область экрана ----------
 // Проблема: .scan-overlay — position:fixed; inset:0, а на многих Android-
@@ -1703,7 +1728,11 @@ function openScanner() {
       qrbox: { width: 340, height: 160 },
       disableFlip: true,
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-      formatsToSupport: [Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128],
+      // Раньше распознавали и CODE_39, и CODE_128 — теперь на складах печатают
+      // только CODE_128, а декодер тратит время кадра, проверяя оба формата.
+      // Сканируем один формат — декодер быстрее находит совпадение на каждом
+      // кадре.
+      formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128],
       videoConstraints: {
         facingMode: "environment",
         frameRate: { ideal: 30, max: 30 },
@@ -1779,7 +1808,9 @@ function computeViewfinderCropRect(videoEl) {
 async function startNativeScanLoop() {
   if (!nativeDetectorSupported()) return false; // нет поддержки — остаёмся на html5-qrcode (fallback уже включён выше)
   try {
-    let formats = ["code_128", "code_39"];
+    // Только CODE_128 — этикетки склада печатаются этим форматом, а более
+    // узкий список форматов для BarcodeDetector быстрее распознаёт код.
+    let formats = ["code_128"];
     try {
       const supported = await window.BarcodeDetector.getSupportedFormats();
       const wanted = formats.filter(f => supported.includes(f));
