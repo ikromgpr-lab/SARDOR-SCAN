@@ -40,7 +40,7 @@
   }
   .login-box { width:100%; max-width:400px; }
   .login-logo-row { display:flex; flex-direction:column; align-items:center; gap:10px; margin-bottom:18px; }
-  .login-logo-row .logo { width:72px; height:72px; }
+  .login-logo-row .logo { width:96px; height:96px; }
   .login-logo-row h1 { font-size:22px; margin:0; color:var(--ink); text-align:center; }
   .login-logo-row .brand-red { color: var(--red); }
   .login-desc { font-size:13px; color:var(--muted); text-align:center; line-height:1.5; margin:0 6px 20px; }
@@ -61,22 +61,33 @@
   }
   #opsFieldsCard { border-left:5px solid var(--mode-color, var(--red)); }
   .wh-checklist {
-    display:grid; grid-template-columns:repeat(auto-fill, minmax(122px,1fr)); gap:2px 8px;
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(122px,1fr)); gap:4px 8px;
     max-height:180px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);
-    padding:6px 8px; margin-top:4px; background:var(--bg);
+    padding:8px; margin-top:4px; background:var(--bg);
   }
-  .wh-check-row { display:flex; align-items:center; gap:7px; padding:6px 2px; font-size:13px; cursor:pointer; user-select:none; }
+  /* Пустой чек-лист (например пока справочник складов ещё грузится) раньше
+     выглядел как непонятная голая плашка без подсказки — теперь показываем
+     текст-заглушку через ::before, пока JS не вставил ни одного чекбокса. */
+  .wh-checklist:empty::before {
+    content: "Загрузка списка складов…"; color:var(--muted); font-size:12.5px; grid-column:1/-1;
+  }
+  .wh-check-row {
+    display:flex; align-items:center; gap:7px; padding:6px 8px; font-size:13px; cursor:pointer; user-select:none;
+    border-radius:8px; background:var(--card); border:1px solid transparent; transition:background .15s ease, border-color .15s ease;
+  }
+  .wh-check-row:has(input:checked) { background:var(--red-light); border-color:var(--red); font-weight:600; }
   .wh-check-row input { width:auto; margin:0; accent-color:var(--red); flex-shrink:0; }
   .link-btn { background:none; border:none; color:var(--red); font-size:12px; font-weight:600; cursor:pointer; padding:2px; text-decoration:underline; }
   .status-pill { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11.5px; font-weight:700; }
   .status-ok { background:var(--ok-bg, #e6f4ea); color:var(--ok-text, #1e5b30); }
   .status-bad { background:var(--err-bg, #fdecea); color:var(--err-text, #7a1f14); }
   label.lbl { font-size:12.5px; color:var(--muted); display:block; margin-top:10px; font-weight:600; }
-  input[type=number], input[type=text], input[type=password], select {
+  input[type=number], input[type=text], input[type=password], input[type=date], select, textarea {
     width:100%; padding:11px 12px; border-radius:var(--radius-sm); border:1px solid var(--border);
-    font-size:15px; margin-top:5px; background:#fff; color:var(--ink);
+    font-size:15px; margin-top:5px; background:#fff; color:var(--ink); font-family:inherit;
   }
-  input:focus, select:focus { outline:none; border-color:var(--red); box-shadow:0 0 0 3px var(--red-light); }
+  textarea { resize:vertical; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--red); box-shadow:0 0 0 3px var(--red-light); }
   input[disabled] { background:#f2f0ee; color:#888; }
   .pass-wrap { position:relative; }
   .pass-wrap input { padding-right:42px; }
@@ -98,6 +109,7 @@
   .btn.secondary { background:#6b7280; }
   .btn.ghost { background:transparent; color:var(--red); border:1px solid var(--red); }
   .btn.small { width:auto; padding:8px 14px; font-size:12.5px; margin:0; }
+  .btn.tiny { width:auto; padding:6px 10px; font-size:11.5px; margin:0; border-radius:8px; }
   .btn:disabled { background:#d8dde6; color:#8b95a5; cursor:not-allowed; }
   /* "Мягкое" отключение — визуально как :disabled, но БЕЗ атрибута disabled,
      то есть кнопка всё ещё принимает нажатия. Нужно для commitBtn: тапнув по
@@ -112,6 +124,11 @@
   .err { background:var(--err-bg); border:1px solid var(--err-border); color:var(--err-text); padding:9px 10px; border-radius:var(--radius-sm); margin-top:8px; font-size:13px; }
   .muted { color:var(--muted); font-size:11.5px; margin-top:5px; line-height:1.5; }
   .hint { color:var(--muted); font-size:11.5px; margin-top:4px; line-height:1.5; }
+  /* Лёгенда функций роли — показывается при выборе роли в форме добавления
+     пользователя (Админ → Пользователи), чтобы было сразу видно, что именно
+     сможет делать новый логин, до того как его создали. */
+  .role-legend { background:var(--red-light); border:1px solid var(--red); border-radius:8px; padding:8px 10px; margin:6px 0 2px; font-size:12px; line-height:1.5; color:#3a1212; }
+  .role-legend b { color:var(--red); }
   .note { font-size:12px; color:var(--warn-text); background:var(--warn-bg); border:1px solid var(--warn-border); padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:12px; }
   table { width:100%; border-collapse:collapse; font-size:12.5px; }
   th, td { text-align:left; padding:6px 4px; border-bottom:1px solid #eee; white-space:nowrap; }
@@ -168,6 +185,13 @@
 
   /* ---------- ПОЛНОЭКРАННЫЙ СКАНЕР ---------- */
   .scan-overlay { position:fixed; inset:0; z-index:999; background:#000; display:flex; flex-direction:column; }
+  /* Высота этой области раньше была "резиновой" (flex:1) и пересчитывалась
+     при каждом изменении высоты оверлея — из-за этого при открытии клавиатуры
+     (быстрый ввод количества) рамка сканирования визуально "прыгала". Теперь
+     на мобильных высота фиксируется один раз в пикселях JS-функцией
+     pinScanOverlayToViewport() при открытии сканера и больше не меняется —
+     см. openScanner(). flex:1 остаётся как запасной вариант, пока JS не
+     применился, и как есть для широких экранов (см. медиа-запрос ниже). */
   .scan-video-wrap { position:relative; flex:1; overflow:hidden; background:#000; min-height:0; }
   .scan-video-wrap #reader { position:absolute; inset:0; margin:0; border-radius:0; }
   .scan-video-wrap #reader video { width:100% !important; height:100% !important; object-fit:cover; }
@@ -191,7 +215,15 @@
   }
   .icon-btn { width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,.18); border:none; color:#fff; font-size:17px; cursor:pointer; }
   .scan-counter-pill { color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.4); padding:6px 12px; border-radius:20px; }
-  .scan-sheet { background:#fff; border-radius:18px 18px 0 0; padding:14px 14px calc(env(safe-area-inset-bottom,0px) + 14px); max-height:56dvh; overflow-y:auto; }
+  /* Раньше высота этой панели ограничивалась max-height:56dvh — на части
+     Android-браузеров dvh уменьшается при открытии клавиатуры, из-за чего
+     нижняя часть панели (например «Отменить этот скан») обрезалась и
+     пряталась за клавиатурой. Теперь панель — гибкий flex-блок (flex:1),
+     который всегда занимает всё оставшееся место в оверлее (высота
+     оверлея, в свою очередь, точно подгоняется под видимую область экрана
+     через visualViewport — см. pinScanOverlayToViewport()) и прокручивается
+     сама при нехватке места — контент никогда не остаётся "за кадром". */
+  .scan-sheet { background:#fff; border-radius:18px 18px 0 0; padding:14px 14px calc(env(safe-area-inset-bottom,0px) + 14px); flex:1 1 auto; min-height:0; overflow-y:auto; }
   .scan-hint-text { text-align:center; color:var(--muted); font-size:13px; margin:2px 0 10px; }
   .scan-hint-text.warn-flash { color:var(--err-text, #a11d2e); font-weight:700; }
   .scan-mode-label { text-align:center; font-size:11.5px; color:var(--mode-color, var(--red)); font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.02em; }
@@ -235,6 +267,40 @@
     display:flex; justify-content:space-between; align-items:center; gap:8px;
   }
   .committed-row .ch-status { font-size:11px; font-weight:700; color:var(--ok-text); white-space:nowrap; }
+
+  /* ---------- "Входящие"/"Отправленные": документ (сгруппированные партии
+     одной отгрузки) с расхождениями по факту и перепиской ---------- */
+  .doc-card { margin-bottom:10px; }
+  .doc-card.doc-open { border-left:5px solid var(--warn-border, #e8b84b); }
+  .doc-card.doc-closed { border-left:5px solid var(--ok-border, #bfe8cc); opacity:.85; }
+  .doc-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; font-size:13.5px; }
+  .doc-lines { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
+  .doc-line { background:var(--bg); border-radius:10px; padding:9px 10px; font-size:13px; }
+  .doc-line-main { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .doc-line-fact { margin-top:4px; font-size:12px; color:var(--warn-text, #8a6512); }
+  .line-status-pill { font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:20px; white-space:nowrap; }
+  .line-status-pill.line-wait { background:var(--warn-bg); color:var(--warn-text); }
+  .line-status-pill.line-issue { background:var(--err-bg); color:var(--err-text); }
+  .line-status-pill.line-ok { background:var(--ok-bg, #e6f4ea); color:var(--ok-text, #1e5b30); }
+  .doc-line-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:7px; }
+  .doc-line-correction { margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); }
+  .doc-line-correction textarea, .doc-line-correction input { width:100%; box-sizing:border-box; font-family:inherit; }
+  .doc-comments { margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+  .doc-comment { border-radius:8px; padding:7px 9px; font-size:12.5px; }
+  .doc-comment.from-receiver { background:var(--err-bg); }
+  .doc-comment.from-sender { background:var(--red-light); }
+  .dc-meta { font-size:11px; color:var(--muted); margin-bottom:2px; }
+  .dc-text { white-space:pre-wrap; word-break:break-word; }
+  .dc-resolved { margin-top:4px; font-size:11px; font-weight:700; color:var(--ok-text, #1e5b30); }
+  .dc-reply-row { display:flex; gap:6px; margin-top:6px; }
+  .dc-reply-input {
+    flex:1; min-width:0; font-family:inherit; font-size:12.5px; padding:7px 9px;
+    border:1px solid var(--border); border-radius:8px; box-sizing:border-box;
+  }
+  .doc-general { margin-top:10px; }
+  .doc-general-add { margin-top:6px; display:flex; flex-direction:column; gap:6px; }
+  .doc-general-add textarea { width:100%; box-sizing:border-box; font-family:inherit; }
+
   .zoom-hint {
     position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:2;
     color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.45);
@@ -273,9 +339,12 @@
 
     /* Полноэкранный сканер: на широком экране камера слева, панель ввода — фиксированная колонка справа */
     .scan-overlay { flex-direction: row; }
-    .scan-video-wrap { flex:1; }
+    /* !important на flex/height — подстраховка от инлайн-стилей, которые
+       pinScanOverlayToViewport() проставляет для мобильной раскладки (она их
+       сама убирает при переключении на широкий экран, но так вернее). */
+    .scan-video-wrap { flex:1 !important; height:auto !important; }
     .scan-sheet {
-      width:400px; max-width:400px; max-height:none; height:100%; flex-shrink:0;
+      width:400px; max-width:400px; height:100%; flex:0 0 400px; flex-shrink:0;
       border-radius:0; box-shadow:-6px 0 18px rgba(0,0,0,.10); overflow-y:auto;
     }
     .viewfinder { top:50%; left:50%; width:56%; max-width:440px; height:170px; }
@@ -306,7 +375,7 @@
   <div class="login-box">
     <div class="login-logo-row">
       <span class="logo"></span>
-      <h1><span class="brand-red">Sardor</span> — вход в систему</h1>
+      <h1>Вход в систему</h1>
     </div>
     <p class="login-desc">Мобильное приложение для учёта прихода, отгрузки и остатков продукции по складам. Сканируйте штрих-код партии — данные синхронизируются с Google Таблицей.</p>
     <div class="card">
@@ -321,7 +390,7 @@
       <button class="btn" id="loginBtn">Войти</button>
       <div id="loginMsg"></div>
     </div>
-    <div class="login-footer">Sardor · система учёта складских остатков</div>
+    <div class="login-footer">Система учёта складских остатков</div>
   </div>
 </div>
 
@@ -338,6 +407,7 @@
 
   <div class="app-content">
     <div id="adminNote" class="note hidden">Роль «Админ»: в «Операциях» доступны «Откуда»/«Куда» за любой склад (не только за свой) — используйте для исправлений и операций от имени других складов. Также доступны «Остатки» по всем складам, «Сводка» и «Управление».</div>
+    <div id="auditorNote" class="note hidden">Роль «Аудитор»: доступно только «Аудит-сканирование» — выберите склад, который проверяете, и сканируйте партии. Отправленный список сразу виден в «Сводке» (у Админа/СГП) вместе со статусом страховочного срока.</div>
 
     <!-- ВКЛАДКА: ОПЕРАЦИИ -->
     <div id="tab-ops">
@@ -416,8 +486,17 @@
     <div id="tab-pending" class="hidden">
       <div class="card">
         <b style="font-size:13px;">Отправлено в ваш адрес, ожидает приёмки</b>
-        <div class="hint">Здесь показаны партии, которые другой склад уже отгрузил в ваш адрес. Нажмите «Принять», когда товар физически поступит к вам.</div>
+        <div class="hint">Здесь показаны документы, которые другой склад уже отгрузил в ваш адрес — сгруппированы по документу. Если всё совпадает — просто нажмите «✅ Принять как в документе» у каждой партии. Если по факту не совпадает количество/дата/код или партии вообще нет в документе — отметьте это, товар всё равно примется по факту, а замечание останется видно отправителю, пока не разберётесь. Документ пропадёт отсюда, когда все его партии приняты и все замечания закрыты.</div>
         <div id="pendingList" class="muted">Загрузка…</div>
+      </div>
+    </div>
+
+    <!-- ВКЛАДКА: ОТПРАВЛЕННЫЕ -->
+    <div id="tab-sent" class="hidden">
+      <div class="card">
+        <b style="font-size:13px;">Отправленные вами документы</b>
+        <div class="hint">Отгрузки, которые вы отправили другому складу. Документ висит как «не принят», пока получатель не примет все партии и не закроет все замечания — здесь видно, что именно он написал, и можно ответить.</div>
+        <div id="sentList" class="muted">Загрузка…</div>
       </div>
     </div>
 
@@ -503,7 +582,9 @@
           <option value="СГП">СГП (завсклад СГП)</option>
           <option value="Регион">Регион (завсклад региона)</option>
           <option value="Админ">Админ</option>
+          <option value="Аудитор">Аудитор</option>
         </select>
+        <div id="roleLegend" class="role-legend"></div>
         <label class="lbl">Склад (для роли СГП/Регион)</label>
         <input type="text" id="newUserWarehouse" placeholder="Например: Гиссар" />
         <button class="btn" id="addUserBtn">➕ Добавить / обновить пользователя</button>
@@ -542,6 +623,7 @@
   <div class="bottom-nav">
     <button class="tab-btn active" data-tab="ops"><span class="ic">🧾</span>Операции</button>
     <button class="tab-btn" data-tab="pending"><span class="ic">📥</span>Входящие <span class="badge" id="pendingBadge">0</span></button>
+    <button class="tab-btn" data-tab="sent"><span class="ic">📤</span>Отправленные <span class="badge hidden" id="sentBadge">0</span></button>
     <button class="tab-btn" data-tab="stock"><span class="ic">📦</span>Остатки</button>
     <button class="tab-btn" data-tab="history"><span class="ic">📊</span>Сводка</button>
     <button class="tab-btn hidden" data-tab="admin" id="adminTabBtn"><span class="ic">⚙️</span>Админ</button>
@@ -806,13 +888,29 @@ async function showMain() {
   // секунду-две выглядел пустым/пропавшим.
   setupModes();
   refreshPendingBadge();
+  refreshSentBadge();
   if (ME.role === "Админ") {
     document.getElementById("adminTabBtn").classList.remove("hidden");
     // У Админа нет своего фиксированного склада — «Входящие» (уведомления
     // конкретному складу) ему не нужны, а вот «Операции» теперь доступны
     // полностью: он может провести приход/отгрузку за любой склад.
     document.querySelector('.tab-btn[data-tab="pending"]').classList.add("hidden");
+    document.querySelector('.tab-btn[data-tab="sent"]').classList.add("hidden");
     document.getElementById("adminNote").classList.remove("hidden");
+  } else if (ME.role === "Аудитор") {
+    // Аудитор видит только «Операции» (аудит-сканирование) — остальные
+    // вкладки ему не нужны и не должны отвлекать/путать.
+    ["pending", "sent", "stock", "history"].forEach(t => {
+      const btn = document.querySelector('.tab-btn[data-tab="' + t + '"]');
+      if (btn) btn.classList.add("hidden");
+    });
+    document.getElementById("auditorNote").classList.remove("hidden");
+  } else {
+    // СГП и Регион: вкладку «Остатки» больше не показываем — остатки склада
+    // видит только Админ (по всем складам) и Начальник ОКСС через «Сводку»/
+    // отчёты. У завскладов остаются «Операции», «Входящие», «Отправленные»
+    // и «Сводка» (по своему складу).
+    document.querySelector('.tab-btn[data-tab="stock"]').classList.add("hidden");
   }
 
   // Справочники (склады/агенты/цеха/СКЮ) нужны только для СОДЕРЖИМОГО
@@ -845,11 +943,12 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    ["ops","pending","stock","history","admin"].forEach(t => {
+    ["ops","pending","sent","stock","history","admin"].forEach(t => {
       const el = document.getElementById("tab-" + t);
       if (t === btn.dataset.tab) el.classList.remove("hidden"); else el.classList.add("hidden");
     });
     if (btn.dataset.tab === "pending") loadPending();
+    if (btn.dataset.tab === "sent") loadSentDocs();
     if (btn.dataset.tab === "stock") loadStock();
     if (btn.dataset.tab === "history") { setupSummaryTab(); loadSummary(); }
     if (btn.dataset.tab === "admin") { loadUsers(); loadWarehousesAdmin(); loadAgentsAdmin(); loadShopsAdmin(); }
@@ -898,6 +997,11 @@ function setupModes() {
     modes = [["in","Приход"], ["out_sgp","Отгрузка в регион"], ["check","Сканирования"]];
   } else if (ME.role === "Админ") {
     modes = [["in","Приход"], ["out_sgp","Отгрузка СГП→регион"], ["out_agent","Отгрузка агенту"], ["check","Сканирования"]];
+  } else if (ME.role === "Аудитор") {
+    // Аудитор: единственная задача — сканировать во время обхода склада и
+    // зарегистрировать находки. Ни движений товара, ни доступа к другим
+    // операциям ему не нужно (см. также applyModeUI/showMain).
+    modes = [["check","Аудит-сканирование"]];
   } else {
     // Региональные склады больше НЕ приходуют вручную ("Приход") — товар к ним
     // попадает только через «Входящие» (там же, кнопкой «✅ Принять», когда
@@ -1006,8 +1110,11 @@ function applyModeUI() {
     // это не влияет (см. getStock на сервере — там 'Сканирование'
     // игнорируется), но результат виден всем в «Сводке».
     toLabel.textContent = ""; toInput.style.display = "none"; toLabel.style.display = "none";
-    if (isAdmin) {
-      fromLabel.textContent = "Какой склад сканируем";
+    const isAuditor = ME.role === "Аудитор";
+    if (isAdmin || isAuditor) {
+      // Аудитор посещает разные склады, поэтому (как и Админ) выбирает склад
+      // из списка при каждом обходе — не привязан к одному складу.
+      fromLabel.textContent = isAuditor ? "Какой склад аудируем *" : "Какой склад сканируем";
       fromSelect.style.display = "block"; fromInput.style.display = "none";
       fromSelect.innerHTML = `<option value="">— выберите склад —</option>` + warehouseOptions(false);
       toInput.value = fromSelect.value;
@@ -1016,6 +1123,9 @@ function applyModeUI() {
       fromLabel.textContent = "Где сканируется";
       fromInput.value = ME.warehouse; fromInput.disabled = true;
       toInput.value = ME.warehouse;
+    }
+    if (isAuditor) {
+      document.getElementById("modeHint").textContent = "Аудит: сначала выберите склад, который сейчас проверяете, затем сканируйте партии. Список отправится в «Сводку» одним отчётом — там будет видно превышение страховочного срока по каждой партии.";
     }
   }
   if (currentMode !== "check") toLabel.style.display = "block";
@@ -1323,10 +1433,10 @@ document.addEventListener("visibilitychange", () => {
   // склад-отправитель проводил отгрузку, пока получатель уже сидел в
   // приложении, бейдж не менялся, пока не перелогиниться — выглядело как
   // "не пришло" или "тормозит". Обновляем и здесь (вернулись в приложение).
-  if (ME && ME.role !== "Админ") refreshPendingBadge();
+  if (ME && ME.role !== "Админ" && ME.role !== "Аудитор") { refreshPendingBadge(); refreshSentBadge(); }
 });
 setInterval(() => attemptFlushDocQueue(), 20000); // подстраховка на случай, если событие "online" не сработало (бывает на некоторых мобильных браузерах)
-setInterval(() => { if (ME && ME.role !== "Админ") refreshPendingBadge(); }, 45000); // живой счётчик "Входящие" — не только при входе
+setInterval(() => { if (ME && ME.role !== "Админ" && ME.role !== "Аудитор") { refreshPendingBadge(); refreshSentBadge(); } }, 45000); // живой счётчик "Входящие"/"Отправленные" — не только при входе
 
 // Возвращает список того, чего не хватает для проведения ({from,to,cart}),
 // либо пустой массив, если всё заполнено. Общая проверка для updateCommitState()
@@ -1450,11 +1560,103 @@ updateScanSoundBtn();
 document.getElementById("qeCancelBtn").onclick = closeQuickEntry;
 document.getElementById("scanCheckOkBtn").onclick = closeQuickEntry;
 document.getElementById("qeAddBtn").onclick = confirmQuickEntry;
+// Доп. подстраховка: когда открывается клавиатура для ввода количества,
+// подскролливаем поле в видимую область (после того как визуальный вьюпорт
+// уже подстроился — небольшая задержка) — чтобы поле и кнопки под ним точно
+// не оставались за клавиатурой даже на нестандартных браузерах.
+document.getElementById("qeQty").addEventListener("focus", () => {
+  setTimeout(() => {
+    try { document.getElementById("qeQty").scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+  }, 300);
+});
+
+// ---------- фиксация оверлея сканера под видимую область экрана ----------
+// Проблема: .scan-overlay — position:fixed; inset:0, а на многих Android-
+// браузерах эта область НЕ уменьшается визуально, когда открывается
+// клавиатура (уменьшается только visualViewport) — либо, наоборот, dvh-юниты
+// внутри оверлея начинают "плавать". Из-за этого при быстром вводе
+// количества (открывается клавиатура) рамка сканирования дёргалась, а низ
+// панели ввода ("Отменить этот скан" и ниже) оказывался визуально за
+// клавиатурой. Решение:
+//  1) область камеры (.scan-video-wrap) на мобильной раскладке получает
+//     ФИКСИРОВАННУЮ высоту в пикселях один раз при открытии сканера — она
+//     больше никогда не пересчитывается, поэтому рамка стоит на одном месте;
+//  2) сам оверлей через window.visualViewport точно подгоняется под
+//     реально видимую область экрана (без клавиатуры) — а панель ввода
+//     (.scan-sheet, flex:1 + overflow:auto) забирает всё оставшееся место и
+//     прокручивается сама, так что вся панель всегда доступна.
+let scanViewportCleanup = null;
+function pinScanOverlayToViewport() {
+  const overlay = document.getElementById("scanOverlay");
+  const videoWrap = document.querySelector(".scan-video-wrap");
+  if (!overlay || !videoWrap) return;
+  const vv = window.visualViewport;
+  let fixedVideoH = null;
+  const apply = () => {
+    const isNarrow = window.matchMedia("(max-width: 899px)").matches;
+    if (isNarrow) {
+      if (fixedVideoH === null) {
+        const baseH = vv ? vv.height : window.innerHeight;
+        // ~42% видимой высоты под камеру (примерно как было раньше при
+        // "резиновой" раскладке на обычном экране), но не меньше/больше
+        // разумных пределов на очень маленьких/больших экранах.
+        fixedVideoH = Math.max(220, Math.min(420, Math.round(baseH * 0.42)));
+      }
+      videoWrap.style.flex = "0 0 auto";
+      videoWrap.style.height = fixedVideoH + "px";
+    } else {
+      videoWrap.style.flex = "";
+      videoWrap.style.height = "";
+    }
+    if (vv) {
+      overlay.style.height = vv.height + "px";
+      overlay.style.top = vv.offsetTop + "px";
+      overlay.style.left = vv.offsetLeft + "px";
+    }
+  };
+  const onOrientation = () => { fixedVideoH = null; apply(); };
+  apply();
+  if (vv) { vv.addEventListener("resize", apply); vv.addEventListener("scroll", apply); }
+  window.addEventListener("orientationchange", onOrientation);
+  scanViewportCleanup = () => {
+    if (vv) { vv.removeEventListener("resize", apply); vv.removeEventListener("scroll", apply); }
+    window.removeEventListener("orientationchange", onOrientation);
+    overlay.style.height = ""; overlay.style.top = ""; overlay.style.left = "";
+    videoWrap.style.flex = ""; videoWrap.style.height = "";
+  };
+}
+
+// ---------- "прогрев" звука сканера ----------
+// Жалоба "звуки сканера как-то отстают": в коде самих playBeep()/
+// playRejectBeep() задержек нет, звук планируется на audioCtx.currentTime
+// сразу. Но AudioContext на мобильных создаётся/возобновляется ЛЕНИВО — при
+// первом же скане, а не заранее — а после простоя аудио-тракт телефона может
+// "просыпаться" с задержкой 100-300мс. Раньше это как раз попадало на самый
+// первый скан после открытия камеры. Теперь контекст создаётся и
+// беззвучно "будится" сразу при открытии сканера — к моменту первого
+// реального скана он уже полностью готов и звук играет без задержки.
+function warmupAudioContext() {
+  if (!scanSoundOn) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.00001, t0); // практически неслышимо
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.05);
+  } catch (e) {}
+}
 
 function openScanner() {
   const overlay = document.getElementById("scanOverlay");
   overlay.classList.remove("hidden");
   applyModeColor(currentMode);
+  pinScanOverlayToViewport();
+  warmupAudioContext();
   document.getElementById("scanModeLabel").textContent =
     { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Сканирования" }[currentMode] || "";
   document.getElementById("scanCounter").textContent = cart.length;
@@ -1887,6 +2089,7 @@ function closeScanner() {
   if (html5QrCode) {
     html5QrCode.stop().then(() => { try { html5QrCode.clear(); } catch (e) {} }).catch(() => {});
   }
+  if (scanViewportCleanup) { try { scanViewportCleanup(); } catch (e) {} scanViewportCleanup = null; }
   document.getElementById("scanOverlay").classList.add("hidden");
   scanLocked = false;
   // После закрытия сканера показываем список отсканированного ("Текущий
@@ -1905,57 +2108,269 @@ function closeScanner() {
   }
 }
 
-// ---------- входящие (для регионов) ----------
+// ---------- входящие / отправленные: приёмка отгрузок СГП→регион с учётом
+// расхождений по факту (см. AppsScript getPendingDocs/getSentDocs/receiveLine) ----------
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+function fmtDateTime(v) {
+  if (!v) return "";
+  try { const d = new Date(v); return isNaN(d.getTime()) ? String(v) : d.toLocaleString("ru-RU"); } catch (e) { return String(v); }
+}
+function fmtDot(iso) { return iso ? String(iso).split("-").reverse().join(".") : ""; }
+
 let pendingBadgeReqToken = 0;
 async function refreshPendingBadge() {
   if (!ME) return;
   const myToken = ++pendingBadgeReqToken;
   try {
-    const r = await apiGet({ action: "pending", warehouse: ME.warehouse });
+    const r = await apiGet({ action: "pendingDocs", warehouse: ME.warehouse });
     if (myToken !== pendingBadgeReqToken) return; // устаревший ответ — не перезаписываем более свежий счётчик
-    document.getElementById("pendingBadge").textContent = (r.pending || []).length;
+    document.getElementById("pendingBadge").textContent = r.actionableCount || 0;
   } catch (e) {}
 }
+let sentBadgeReqToken = 0;
+async function refreshSentBadge() {
+  if (!ME) return;
+  const myToken = ++sentBadgeReqToken;
+  try {
+    const r = await apiGet({ action: "sentDocs", warehouse: ME.warehouse });
+    if (myToken !== sentBadgeReqToken) return;
+    const problemCount = (r.docs || []).filter(d => d.hasIssues).length;
+    const badge = document.getElementById("sentBadge");
+    badge.textContent = problemCount;
+    badge.classList.toggle("hidden", problemCount === 0);
+  } catch (e) {}
+}
+
+// Полоска-статус документа: "принят"/"есть проблема"/"ожидает приёмки".
+function docStatusPill(doc) {
+  if (!doc.isOpen) return `<span class="status-pill status-ok">✅ Принят</span>`;
+  if (doc.hasIssues) return `<span class="status-pill status-bad">⚠ Есть замечания</span>`;
+  return `<span class="status-pill status-bad">⏳ Ожидает приёмки</span>`;
+}
+
+function renderCommentThread(comments) {
+  if (!comments || !comments.length) return "";
+  return `<div class="doc-comments">` + comments.map(c => `
+    <div class="doc-comment ${c.side === "получатель" ? "from-receiver" : "from-sender"}">
+      <div class="dc-meta"><b>${c.side === "получатель" ? "📥 Получатель" : "📤 Отправитель"}</b> · ${escapeHtml(c.user || "")} · ${fmtDateTime(c.createdAt)}</div>
+      <div class="dc-text">${escapeHtml(c.text)}</div>
+      ${(c.type === "проблема" || c.type === "нет_в_документе")
+        ? (c.resolved
+            ? `<div class="dc-resolved">✅ отмечено решённым</div>`
+            : `<button type="button" class="btn tiny secondary" data-action="resolve-comment" data-comment-id="${c.id}">✅ Отметить решённым</button>`)
+        : ""}
+    </div>`).join("") + `</div>
+    <div class="dc-reply-row">
+      <input type="text" class="dc-reply-input" placeholder="Ответить…" data-parent-comment="${comments[0].id}" />
+      <button type="button" class="btn tiny secondary" data-action="reply-comment" data-parent-comment="${comments[0].id}">Ответить</button>
+    </div>`;
+}
+
+// side: 'pending' (я получатель — есть кнопки приёма/расхождения) | 'sent' (я отправитель — только просмотр+ответ)
+function renderDocLine(line, side) {
+  const openIssue = line.issueStatus === "открыта";
+  const closedIssue = line.issueStatus === "решена";
+  let statusBit;
+  if (line.status !== "Разгружено") statusBit = `<span class="line-status-pill line-wait">⏳ не принято</span>`;
+  else if (openIssue) statusBit = `<span class="line-status-pill line-issue">⚠ расхождение</span>`;
+  else if (closedIssue) statusBit = `<span class="line-status-pill line-ok">✅ принято (вопрос решён)</span>`;
+  else statusBit = `<span class="line-status-pill line-ok">✅ принято</span>`;
+
+  const factBits = [];
+  if (line.receivedQty !== null && line.receivedQty !== "" && Number(line.receivedQty) !== Number(line.qty)) factBits.push(`факт. кол-во: <b>${line.receivedQty} шт</b>`);
+  if (line.receivedLot) factBits.push(`факт. код: <b>${escapeHtml(line.receivedLot)}</b>`);
+  if (line.receivedProdDate) factBits.push(`факт. дата: <b>${fmtDot(line.receivedProdDate)}</b>`);
+  const factLine = factBits.length ? `<div class="doc-line-fact">По факту: ${factBits.join(" · ")}</div>` : "";
+
+  let actions = "";
+  if (side === "pending" && line.status !== "Разгружено") {
+    actions = `
+      <div class="doc-line-actions">
+        <button type="button" class="btn tiny" data-action="accept-line" data-line-id="${line.id}">✅ Принять как в документе</button>
+        <button type="button" class="btn tiny secondary" data-action="toggle-correction" data-line-id="${line.id}">⚠ Не совпадает</button>
+      </div>
+      <div class="doc-line-correction hidden" id="corr_${line.id}">
+        <div class="row2">
+          <div><label class="lbl">Кол-во по факту</label><input type="number" inputmode="numeric" id="corrQty_${line.id}" placeholder="${line.qty}" /></div>
+          <div><label class="lbl">Дата произв. по факту</label><input type="date" id="corrDate_${line.id}" /></div>
+        </div>
+        <label class="lbl">Код СКЮ по факту</label>
+        <input type="text" id="corrLot_${line.id}" placeholder="${escapeHtml(line.lot)}" />
+        <label class="lbl">Комментарий отправителю</label>
+        <textarea id="corrComment_${line.id}" rows="2" placeholder="Например: пересорт, приехала не та партия…"></textarea>
+        <button type="button" class="btn tiny" data-action="accept-line-corrected" data-line-id="${line.id}">Принять по факту</button>
+        <div id="corrErr_${line.id}"></div>
+      </div>`;
+  }
+
+  return `
+    <div class="doc-line">
+      <div class="doc-line-main">Партия <b>${escapeHtml(line.lot)}</b> · ${fmtDot(line.prodDate)} · <b>${line.qty} шт</b> ${statusBit}</div>
+      ${factLine}
+      ${actions}
+      ${renderCommentThread(line.comments)}
+    </div>`;
+}
+
+function renderDocCard(doc, side) {
+  const headLabel = side === "pending"
+    ? `Откуда: <b>${escapeHtml(doc.from)}</b>`
+    : `Кому: <b>${escapeHtml(doc.to)}</b>`;
+  const generalAddBtn = side === "pending"
+    ? `<button type="button" class="btn tiny secondary" data-action="add-general" data-doc-id="${doc.docId}">➕ Получили что-то, чего нет в этом документе</button>`
+    : "";
+  return `
+    <div class="card doc-card ${doc.isOpen ? "doc-open" : "doc-closed"}" id="doc_${doc.docId}">
+      <div class="doc-card-head">
+        <div>${headLabel}<div class="muted" style="margin-top:2px;">Отправлено: ${fmtDateTime(doc.sentAt)} · ${escapeHtml(doc.user || "")}</div></div>
+        ${docStatusPill(doc)}
+      </div>
+      <div class="doc-lines">${doc.lines.map(l => renderDocLine(l, side)).join("")}</div>
+      <div class="doc-general">
+        ${doc.generalComments.length ? `<div class="muted" style="margin:6px 0 2px;">Замечания без привязки к конкретной партии:</div>${renderCommentThread(doc.generalComments)}` : ""}
+        <div class="doc-general-add hidden" id="genAdd_${doc.docId}">
+          <textarea id="genComment_${doc.docId}" rows="2" placeholder="Например: приехала ещё одна коробка партии 128, которой нет в этом документе"></textarea>
+          <button type="button" class="btn tiny" data-action="submit-general" data-doc-id="${doc.docId}">Отправить</button>
+        </div>
+        ${generalAddBtn}
+      </div>
+    </div>`;
+}
+
 let pendingReqToken = 0;
 async function loadPending() {
   const el = document.getElementById("pendingList");
   el.innerHTML = "Загрузка…";
   const myToken = ++pendingReqToken;
   try {
-    const r = await apiGet({ action: "pending", warehouse: ME.warehouse });
+    const r = await apiGet({ action: "pendingDocs", warehouse: ME.warehouse });
     if (myToken !== pendingReqToken) return;
-    const items = r.pending || [];
-    if (items.length === 0) { el.innerHTML = "Нет ожидающих поставок."; return; }
-    el.innerHTML = items.map(it => `
-      <div class="card" id="pendingCard_${it.id}" style="margin-bottom:8px; background:var(--warn-bg); border-color:var(--warn-border);">
-        Партия <b>${it.lot}</b> · дата произв. ${it.prodDate.split("-").reverse().join(".")} · <b>${it.qty} шт</b><br>
-        Откуда: ${it.from} · отправлено: ${new Date(it.sentAt).toLocaleString("ru-RU")}
-        <label class="lbl" style="margin-top:6px;">Комментарий отправителю (необязательно)</label>
-        <textarea id="pendingComment_${it.id}" rows="2" placeholder="Например: количество не совпадает, приедет ещё одна коробка…" style="width:100%; box-sizing:border-box; font-family:inherit; font-size:14px; padding:8px; border:1px solid var(--border); border-radius:8px;"></textarea>
-        <button class="btn small" id="pendingBtn_${it.id}" style="margin-top:6px;" onclick="window.__receive('${it.id}')">✅ Принять</button>
-        <div id="pendingErr_${it.id}"></div>
-      </div>`).join("");
+    const docs = r.docs || [];
+    el.innerHTML = docs.length ? docs.map(d => renderDocCard(d, "pending")).join("") : "Нет ожидающих поставок.";
   } catch (e) { if (myToken === pendingReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
 }
-window.__receive = async (id) => {
-  const btn = document.getElementById("pendingBtn_" + id);
-  const errBox = document.getElementById("pendingErr_" + id);
-  const commentEl = document.getElementById("pendingComment_" + id);
-  const comment = commentEl ? commentEl.value.trim() : "";
-  if (btn) btn.disabled = true;
-  if (errBox) errBox.innerHTML = "";
+
+let sentReqToken = 0;
+async function loadSentDocs() {
+  const el = document.getElementById("sentList");
+  el.innerHTML = "Загрузка…";
+  const myToken = ++sentReqToken;
   try {
-    const res = await apiPost({ action: "receive", id, comment, user: ME.login, role: ME.role });
-    if (!res || res.ok === false) throw new Error(res && res.error ? res.error : "сервер отклонил приёмку");
-    loadPending();
-    refreshPendingBadge();
-  } catch (e) {
-    // Приёмку не подтверждаем "молча" — раньше ошибка сети/сервера здесь
-    // просто проглатывалась, и кнопка выглядела так, будто ничего не делает.
-    if (btn) btn.disabled = false;
-    if (errBox) errBox.innerHTML = `<div class="err" style="margin-top:6px;">Не удалось принять: ${e}. Проверьте связь и попробуйте ещё раз — позиция осталась во «Входящих».</div>`;
-  }
-};
+    const r = await apiGet({ action: "sentDocs", warehouse: ME.warehouse });
+    if (myToken !== sentReqToken) return;
+    const docs = r.docs || [];
+    el.innerHTML = docs.length ? docs.map(d => renderDocCard(d, "sent")).join("") : "Вы пока ничего не отправляли.";
+  } catch (e) { if (myToken === sentReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
+}
+
+// Единый обработчик кликов для обеих вкладок (делегирование — карточек и
+// кнопок внутри них много и они постоянно перерисовываются).
+function setupDocPanelHandlers(containerId, side, reloadFn, badgeFn) {
+  const el = document.getElementById(containerId);
+  el.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("button[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+
+    if (action === "toggle-correction") {
+      const box = document.getElementById("corr_" + btn.dataset.lineId);
+      if (box) box.classList.toggle("hidden");
+      return;
+    }
+
+    if (action === "accept-line" || action === "accept-line-corrected") {
+      const lineId = btn.dataset.lineId;
+      btn.disabled = true;
+      const payload = { id: lineId, user: ME.login, role: ME.role };
+      let errBox = null;
+      if (action === "accept-line-corrected") {
+        const qtyEl = document.getElementById("corrQty_" + lineId);
+        const lotEl = document.getElementById("corrLot_" + lineId);
+        const dateEl = document.getElementById("corrDate_" + lineId);
+        const commentEl = document.getElementById("corrComment_" + lineId);
+        if (qtyEl && qtyEl.value.trim() !== "") payload.actualQty = qtyEl.value.trim();
+        if (lotEl && lotEl.value.trim() !== "") payload.actualLot = lotEl.value.trim();
+        if (dateEl && dateEl.value) payload.actualProdDate = dateEl.value;
+        if (commentEl) payload.comment = commentEl.value.trim();
+        errBox = document.getElementById("corrErr_" + lineId);
+      }
+      try {
+        const res = await apiPost({ action: "receiveLine", ...payload });
+        if (!res || res.ok === false) throw new Error(res && res.error ? res.error : "сервер отклонил приёмку");
+        showFloatingToast(res.hasIssue ? "⚠ Принято по факту — замечание отправлено отправителю" : "✅ Партия принята", res.hasIssue ? "warn" : "ok");
+        reloadFn();
+        if (badgeFn) badgeFn();
+      } catch (e) {
+        btn.disabled = false;
+        if (errBox) errBox.innerHTML = `<div class="err" style="margin-top:6px;">Не удалось принять: ${e}. Проверьте связь и попробуйте ещё раз.</div>`;
+        else showFloatingToast("⚠ Не удалось принять: " + e, "warn");
+      }
+      return;
+    }
+
+    if (action === "add-general") {
+      const box = document.getElementById("genAdd_" + btn.dataset.docId);
+      if (box) box.classList.toggle("hidden");
+      return;
+    }
+
+    if (action === "submit-general") {
+      const docId = btn.dataset.docId;
+      const textEl = document.getElementById("genComment_" + docId);
+      const text = textEl ? textEl.value.trim() : "";
+      if (!text) { showFloatingToast("⚠ Опишите, что именно получили", "warn"); return; }
+      btn.disabled = true;
+      try {
+        const res = await apiPost({ action: "addDocComment", docId, side: "получатель", user: ME.login, role: ME.role, text, type: "нет_в_документе" });
+        if (!res || res.ok === false) throw new Error(res && res.error ? res.error : "сервер отклонил");
+        showFloatingToast("✅ Замечание отправлено отправителю", "ok");
+        reloadFn();
+        if (badgeFn) badgeFn();
+      } catch (e) {
+        btn.disabled = false;
+        showFloatingToast("⚠ Не удалось отправить: " + e, "warn");
+      }
+      return;
+    }
+
+    if (action === "reply-comment") {
+      const parentId = btn.dataset.parentComment;
+      const input = el.querySelector(`.dc-reply-input[data-parent-comment="${parentId}"]`);
+      const text = input ? input.value.trim() : "";
+      if (!text) return;
+      btn.disabled = true;
+      try {
+        const replySide = side === "pending" ? "получатель" : "отправитель";
+        const res = await apiPost({ action: "replyToComment", commentId: parentId, user: ME.login, role: ME.role, text, side: replySide });
+        if (!res || res.ok === false) throw new Error(res && res.error ? res.error : "сервер отклонил");
+        reloadFn();
+      } catch (e) {
+        btn.disabled = false;
+        showFloatingToast("⚠ Не удалось ответить: " + e, "warn");
+      }
+      return;
+    }
+
+    if (action === "resolve-comment") {
+      btn.disabled = true;
+      try {
+        const res = await apiPost({ action: "resolveComment", commentId: btn.dataset.commentId, user: ME.login, role: ME.role });
+        if (!res || res.ok === false) throw new Error(res && res.error ? res.error : "сервер отклонил");
+        showFloatingToast("✅ Отмечено решённым", "ok");
+        reloadFn();
+        if (badgeFn) badgeFn();
+      } catch (e) {
+        btn.disabled = false;
+        showFloatingToast("⚠ Не удалось отметить: " + e, "warn");
+      }
+      return;
+    }
+  });
+}
+setupDocPanelHandlers("pendingList", "pending", loadPending, () => { refreshPendingBadge(); refreshSentBadge(); });
+setupDocPanelHandlers("sentList", "sent", loadSentDocs, () => { refreshPendingBadge(); refreshSentBadge(); });
 
 // ---------- чек-лист складов (замена <select multiple> — удобнее на телефоне
 // и позволяет выбрать ровно один склад одним касанием, без Ctrl/Cmd+клик) ----------
@@ -2093,6 +2508,23 @@ function downloadCsv(csv, filename) {
 // ---------- админ: пользователи ----------
 let editingUserLogin = null;
 
+// Что умеет каждая роль — показывается прямо в форме добавления
+// пользователя (под выбором роли), чтобы было понятно ДО создания логина,
+// какие вкладки/действия у него будут. Текст держим коротким — это подсказка,
+// не документация.
+const ROLE_FUNCTIONS = {
+  "СГП": "Приход (из цехов), Отгрузка в регион, Сканирования. Видит «Входящие»/«Отправленные» и «Сводку» по своему складу (СГП). Вкладки «Остатки» нет — остатки видит только Админ.",
+  "Регион": "Отгрузка агенту, Сканирования. Принимает поставки во «Входящих» (подтверждает или отмечает расхождения), видит свои «Отправленные» и «Сводку» по своему складу. Вкладки «Остатки» нет. Без ручного «Прихода» — товар приходит только через приёмку.",
+  "Админ": "Полный доступ: Приход/Отгрузка/Сканирования за любой склад, «Остатки» и «Сводка» по всем складам, вкладка «Админ» (пользователи, склады, агенты, цеха).",
+  "Аудитор": "Только сканирование во время аудита: выбирает склад, который сейчас проверяет, и сканирует партии. Данные сразу видны в «Сводке» — в т.ч. превышение страховочного срока по каждой партии. Нет доступа к Приходу/Отгрузкам/Остаткам/Входящим/Админ."
+};
+function updateRoleLegend() {
+  const role = document.getElementById("newUserRole").value;
+  document.getElementById("roleLegend").innerHTML = `<b>Функции роли «${role}»:</b> ${ROLE_FUNCTIONS[role] || ""}`;
+}
+document.getElementById("newUserRole").addEventListener("change", updateRoleLegend);
+updateRoleLegend(); // показать лёгенду сразу для роли, выбранной по умолчанию
+
 function resetUserForm() {
   editingUserLogin = null;
   document.getElementById("userFormTitle").textContent = "Новый пользователь";
@@ -2104,6 +2536,7 @@ function resetUserForm() {
   document.getElementById("newUserWarehouse").value = "";
   document.getElementById("cancelEditUserBtn").classList.add("hidden");
   document.getElementById("addUserBtn").textContent = "➕ Добавить / обновить пользователя";
+  updateRoleLegend();
 }
 
 async function loadUsers() {
@@ -2142,6 +2575,7 @@ window.__editUser = (login, role, warehouse) => {
   document.getElementById("newUserPass").placeholder = "оставьте пустым, чтобы не менять";
   document.getElementById("newUserRole").value = role;
   document.getElementById("newUserWarehouse").value = warehouse === "-" ? "" : warehouse;
+  updateRoleLegend();
   document.getElementById("cancelEditUserBtn").classList.remove("hidden");
   document.getElementById("addUserBtn").textContent = "💾 Сохранить изменения";
   document.getElementById("newUserLogin").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2282,12 +2716,18 @@ function setupSummaryTab() {
   const whRow = document.getElementById("summaryWarehousesRow");
   if (ME.role === "Админ") {
     whRow.classList.remove("hidden");
-    const el = document.getElementById("summaryWarehouses");
-    if (!el.dataset.filled) {
-      renderWhChecklist("summaryWarehouses", () => { saveFilter("flt_summaryWarehouses", getWhChecked("summaryWarehouses")); debouncedLoadSummary(); });
-      restoreWhChecklist("summaryWarehouses", loadFilter("flt_summaryWarehouses"));
-      el.dataset.filled = "1";
-    }
+    // Раньше список складов рисовался только один раз за сессию (флаг
+    // dataset.filled) — если пользователь открывал «Сводку» ДО того, как
+    // подгрузился справочник складов (обычное дело на медленной связи с
+    // Google Apps Script), чек-лист оставался пустым НАВСЕГДА, даже после
+    // того как список складов приходил. Внешне это выглядело как пустая
+    // "непонятная" плашка без единого чекбокса. Теперь, как и в «Остатках»,
+    // перерисовываем список при каждом заходе на вкладку — это дёшево (пара
+    // десятков строк) и сразу подхватывает уже загруженный список складов;
+    // текущий выбор пользователя не теряется — он всегда восстанавливается
+    // из сохранённого фильтра сразу после отрисовки.
+    renderWhChecklist("summaryWarehouses", () => { saveFilter("flt_summaryWarehouses", getWhChecked("summaryWarehouses")); debouncedLoadSummary(); });
+    restoreWhChecklist("summaryWarehouses", loadFilter("flt_summaryWarehouses"));
   } else {
     whRow.classList.add("hidden");
   }
