@@ -253,13 +253,12 @@
   /* Поле — крупное и по центру, чтобы было легко попасть пальцем и сразу
      видно набранное число даже под приподнявшейся клавиатурой. */
   .qty-modal-card input#qeQty { text-align:center; font-size:28px; font-weight:700; padding:14px 10px; }
-  /* Подсказка-водяной знак внутри пустого поля («Укажите блок») по умолчанию
+  /* Подсказка-водяной знак внутри пустого поля («укажите блок») по умолчанию
      наследует те же 28px/700, что и набранные цифры, — из-за этого выглядела
-     слишком "ярко"/жирно, почти как настоящий ввод. var(--muted) (#6b7280)
-     оказался, наоборот, слишком светлым/бледным при таком крупном шрифте —
-     подбираем средний вариант: заметно тише самого ввода, но всё ещё хорошо
-     читается, не сливаясь с белым фоном карточки. */
-  .qty-modal-card input#qeQty::placeholder { color: #4b5563; font-weight:600; opacity:1; }
+     слишком заметной/жирной, почти как настоящий ввод. По просьбе делаем её
+     заметно тише — обычным начертанием и лёгким 15%-м оттенком чернильного
+     цвета (--ink на 15% непрозрачности), а не сплошным серым. */
+  .qty-modal-card input#qeQty::placeholder { color: var(--ink); font-weight:400; opacity:0.15; }
   .scan-last3 { margin:10px 0 4px; }
   .scan-list-handle {
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
@@ -720,7 +719,7 @@
       <div class="scan-quick-info">Партия <b id="qeLot"></b> · <span id="qeDate"></span></div>
       <div id="qeDateWarn"></div>
       <label class="lbl">Количество, шт</label>
-      <input type="text" id="qeQty" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Укажите блок" />
+      <input type="text" id="qeQty" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="укажите блок" />
       <button class="btn" id="qeAddBtn">✓ Добавить и продолжить сканирование</button>
       <button class="btn secondary" id="qeCancelBtn">Отменить этот скан</button>
     </div>
