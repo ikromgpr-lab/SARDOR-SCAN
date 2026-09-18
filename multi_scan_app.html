@@ -251,6 +251,12 @@
   /* Поле — крупное и по центру, чтобы было легко попасть пальцем и сразу
      видно набранное число даже под приподнявшейся клавиатурой. */
   .qty-modal-card input#qeQty { text-align:center; font-size:28px; font-weight:700; padding:14px 10px; }
+  /* Подсказка-водяной знак внутри пустого поля («Укажите блок») по умолчанию
+     наследует те же 28px/700, что и набранные цифры, — из-за этого выглядела
+     слишком "ярко"/жирно, почти как настоящий ввод. Делаем её заметно тише:
+     обычным начертанием и приглушённым серым цветом (var(--muted), как у
+     остальных подсказок в приложении), а не жирным чёрным/цветным. */
+  .qty-modal-card input#qeQty::placeholder { color: var(--muted); font-weight:400; opacity:1; }
   .scan-last3 { margin:10px 0 4px; }
   .scan-list-handle {
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
@@ -711,7 +717,7 @@
       <div class="scan-quick-info">Партия <b id="qeLot"></b> · <span id="qeDate"></span></div>
       <div id="qeDateWarn"></div>
       <label class="lbl">Количество, шт</label>
-      <input type="text" id="qeQty" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Кол-во" />
+      <input type="text" id="qeQty" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Укажите блок" />
       <button class="btn" id="qeAddBtn">✓ Добавить и продолжить сканирование</button>
       <button class="btn secondary" id="qeCancelBtn">Отменить этот скан</button>
     </div>
@@ -2907,17 +2913,24 @@ function renderSummary(r) {
     const users = Array.from(new Set(whItems.map(it => it.user).filter(Boolean)));
     let lastTs = null;
     whItems.forEach(it => { if (it.ts && (!lastTs || new Date(it.ts) > new Date(lastTs))) lastTs = it.ts; });
-    const exceededCount = whItems.filter(it => it.status === "Превышен").length;
+    const exceededItems = whItems.filter(it => it.status === "Превышен");
+    const totalQty = whItems.reduce((s, it) => s + (Number(it.qty) || 0), 0);
+    const exceededQty = exceededItems.reduce((s, it) => s + (Number(it.qty) || 0), 0);
     // Колонки "Время"/"Пользователь"/"Операция"/"Откуда"/"Куда"/"Код СКЮ" убраны
     // из таблицы — они теперь одной строкой в маленьком итоге под таблицей
     // (пользователь и время последней записи), а не дублируются на каждую строку.
+    // ВАЖНО: и "Всего", и "Превышают срок" показываем ОБЕИМИ величинами —
+    // и количеством партий (записей), и суммой штук — а не голым числом без
+    // единицы измерения: именно голое число вида "Превышают срок: 1" и путало
+    // (непонятно, это партия или штуки), это и было исправлено.
     html += `<div class="card">
       <div style="font-weight:700; margin-bottom:8px;">${wh}</div>
       <div class="table-scroll"><table><tr><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th>${hasComments ? "<th>Комментарий получателя</th>" : ""}</tr>
       ${whItems.map(it => `<tr><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td>${hasComments ? `<td>${it.comment ? `<span class="warn" style="padding:2px 6px; border-radius:6px;">${it.comment}</span>` : ""}</td>` : ""}</tr>`).join("")}
       </table></div>
-      <div class="muted" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-size:12px;">
-        Пользователь: <b>${users.join(", ") || "—"}</b> · ${isScan ? "Последнее сканирование" : "Последняя операция"}: <b>${lastTs ? new Date(lastTs).toLocaleTimeString("ru-RU") : "—"}</b> · Всего ${isScan ? "сканирований" : "операций"}: <b>${whItems.length}</b> · Превышают срок: <b>${exceededCount}</b>
+      <div class="muted" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-size:12px; line-height:1.6;">
+        Пользователь: <b>${users.join(", ") || "—"}</b> · ${isScan ? "Последнее сканирование" : "Последняя операция"}: <b>${lastTs ? new Date(lastTs).toLocaleTimeString("ru-RU") : "—"}</b><br/>
+        Всего ${isScan ? "сканирований" : "операций"}: <b>${whItems.length} парт. (${totalQty} шт)</b> · Превышают срок: <b>${exceededItems.length} парт. (${exceededQty} шт)</b>
       </div>
     </div>`;
   });
