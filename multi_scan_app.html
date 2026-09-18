@@ -583,6 +583,14 @@
           <div id="summaryWarehouses" class="wh-checklist"></div>
           <div class="muted">Ничего не отмечено = все склады.</div>
         </div>
+        <div id="summarySkusRow" class="hidden">
+          <div style="display:flex; justify-content:space-between; align-items:baseline;">
+            <label class="lbl" style="margin-top:10px;">СКЮ (отметьте нужные)</label>
+            <button type="button" class="link-btn" id="summarySkuClearBtn">Сбросить (все СКЮ)</button>
+          </div>
+          <div id="summarySkus" class="wh-checklist"></div>
+          <div class="muted">Ничего не отмечено = все СКЮ.</div>
+        </div>
         <button class="btn" id="applySummaryBtn">Показать</button>
         <div class="hint">Показывает данные заново по выбранным фильтрам — если что-то не появилось само.</div>
       </div>
@@ -810,7 +818,7 @@ function showFloatingToast(message, type) {
 function saveFilter(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
 function loadFilter(key) { try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function clearSavedFilters() {
-  ["flt_summaryOpType", "flt_summaryDate", "flt_summaryWarehouses", "flt_snapWarehouses", "flt_snapDateFrom", "flt_snapDateTo"]
+  ["flt_summaryOpType", "flt_summaryDate", "flt_summaryWarehouses", "flt_summarySkus", "flt_snapWarehouses", "flt_snapDateFrom", "flt_snapDateTo"]
     .forEach(k => { try { sessionStorage.removeItem(k); } catch (e) {} });
 }
 
@@ -1703,12 +1711,15 @@ function openScanner() {
   //   без потери работоспособности;
   // - disableFlip отключает лишнюю попытку распознать зеркально отражённый кадр
   //   (не нужна при обычном сканировании с задней камеры) — экономит время на кадр;
-  // - videoConstraints просит у камеры 1080p (Full HD) и стабильный fps — это
-  //   уже достаточно чётко для мелких штрих-кодов (плюс зум щипком и автофокус
-  //   ниже добавляют детали при необходимости), а вот 4K на слабых/бюджетных
-  //   телефонах наоборот ТОРМОЗИТ: камере тяжелее стримить такой поток стабильно,
-  //   и именно это часто ощущается как "долго сканирует" — раньше здесь стоял 4K,
-  //   но по факту он не оправдывает себя на массовых Android-телефонах.
+  // - videoConstraints просит у камеры 720p (HD), а не 1080p/4K — это ровно то
+  //   разрешение, которое используют профессиональные SDK сканирования штрихкодов
+  //   (ML Kit, ZXing и т.п.): для чтения штрихкода нужна резкость и контраст
+  //   краёв полос, а не мегапиксели. На слабых/бюджетных телефонах (а в цехах и
+  //   на складах именно такие) более высокое разрешение — это больше работы для
+  //   процессора камеры на каждый кадр: медленнее сходится автофокус/экспозиция,
+  //   ниже реальный fps потока — и ощущается это как раз как "навёл — и долго
+  //   думает". 720p+обрезка ровно по рамке-видоискателю (ниже) + зум щипком при
+  //   необходимости дают достаточно детализации, но заметно быстрее сходятся;
   // Если браузер поддерживает нативный BarcodeDetector (Chrome/Android) — не
   // отдаём кадры на распознавание через html5-qrcode (это медленнее и не даёт
   // точно обрезать зону сканирования), а запускаем свой цикл ниже
@@ -1736,8 +1747,8 @@ function openScanner() {
       videoConstraints: {
         facingMode: "environment",
         frameRate: { ideal: 30, max: 30 },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
       }
     },
     (text) => { if (!nativeScanActive) onScanDecoded(text); },
@@ -1888,19 +1899,26 @@ function getActiveVideoTrack() {
 }
 
 function setupFocusMode() {
-  // Непрерывный автофокус (continuous) — камера сама постоянно подстраивает
-  // резкость, что особенно важно для мелких штрих-кодов и для случаев, когда
-  // расстояние до этикетки постоянно меняется. Поддерживается не на всех
-  // устройствах (в основном Chrome/Android) — там, где нет, просто ничего
-  // не делаем, обычный автофокус браузера остаётся как был.
+  // Непрерывный автофокус/экспозиция/баланс белого (continuous) — камера сама
+  // постоянно подстраивает резкость, яркость и цвет, что особенно важно для
+  // мелких штрих-кодов и для случаев, когда расстояние до этикетки и освещение
+  // на складе постоянно меняются. Без continuous-экспозиции камера после наводки
+  // на новый объект часто ещё раз "передумывает" яркость несколько кадров —
+  // это тоже ощущается как "навёл — и долго думает". Поддерживается не на всех
+  // устройствах (в основном Chrome/Android) — там, где какой-то из режимов нет,
+  // просто пропускаем именно его, остальное всё равно включаем.
   try {
     const track = getActiveVideoTrack();
     if (!track || !track.getCapabilities) return;
     const caps = track.getCapabilities();
-    if (caps.focusMode && caps.focusMode.includes("continuous")) {
-      track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+    const advanced = {};
+    if (caps.focusMode && caps.focusMode.includes("continuous")) advanced.focusMode = "continuous";
+    if (caps.exposureMode && caps.exposureMode.includes("continuous")) advanced.exposureMode = "continuous";
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes("continuous")) advanced.whiteBalanceMode = "continuous";
+    if (Object.keys(advanced).length) {
+      track.applyConstraints({ advanced: [advanced] }).catch(() => {});
     }
-  } catch (e) { /* автофокус недоступен — не критично, останется обычный */ }
+  } catch (e) { /* автофокус/экспозиция недоступны — не критично, останется обычный */ }
 }
 
 // ---------- зум щипком двух пальцев — приблизить мелкий штрих-код ----------
@@ -2425,6 +2443,38 @@ function restoreWhChecklist(containerId, checkedList) {
   el.querySelectorAll("input[type=checkbox]").forEach(cb => { if (checkedList.indexOf(cb.value) !== -1) cb.checked = true; });
 }
 
+// ---------- чек-лист СКЮ (для выборочного фильтра в «Сводке» у Админа) ----------
+// Полностью отдельные функции от wh-чеклиста выше (не переиспользуем его
+// напрямую), чтобы точно ничего не задеть в уже работающем фильтре складов —
+// разметка и класс ".wh-check-row"/".wh-checklist" те же (стили общие), только
+// источник данных другой (skuList вместо warehousesList) и value — код СКЮ.
+function renderSkuChecklist(containerId, onChange) {
+  const el = document.getElementById(containerId);
+  const seen = new Set();
+  const uniqueSkus = (skuList || []).filter(s => {
+    const code = String(s.code || "").trim();
+    if (!code || seen.has(code)) return false;
+    seen.add(code);
+    return true;
+  }).sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code), "ru"));
+  el.innerHTML = uniqueSkus.map(s => `
+    <label class="wh-check-row"><input type="checkbox" value="${s.code}" /><span>${s.code} — ${s.name || ""}</span></label>
+  `).join("");
+  if (onChange) el.querySelectorAll("input[type=checkbox]").forEach(cb => cb.addEventListener("change", onChange));
+}
+function getSkuChecked(containerId) {
+  const el = document.getElementById(containerId);
+  return Array.from(el.querySelectorAll("input[type=checkbox]:checked")).map(cb => cb.value);
+}
+function clearSkuChecklist(containerId) {
+  document.getElementById(containerId).querySelectorAll("input[type=checkbox]").forEach(cb => cb.checked = false);
+}
+function restoreSkuChecklist(containerId, checkedList) {
+  if (!checkedList || !checkedList.length) return;
+  const el = document.getElementById(containerId);
+  el.querySelectorAll("input[type=checkbox]").forEach(cb => { if (checkedList.indexOf(cb.value) !== -1) cb.checked = true; });
+}
+
 // ---------- подсказки агентов (для "Прихода" от агента и "Отгрузки агенту") ----------
 function renderAgentsDatalist() {
   const dl = document.getElementById("agentsDatalist");
@@ -2745,8 +2795,10 @@ function setupSummaryTab() {
   const savedOpType = loadFilter("flt_summaryOpType");
   if (savedOpType) document.getElementById("summaryOpType").value = savedOpType;
   const whRow = document.getElementById("summaryWarehousesRow");
+  const skuRow = document.getElementById("summarySkusRow");
   if (ME.role === "Админ") {
     whRow.classList.remove("hidden");
+    skuRow.classList.remove("hidden");
     // Раньше список складов рисовался только один раз за сессию (флаг
     // dataset.filled) — если пользователь открывал «Сводку» ДО того, как
     // подгрузился справочник складов (обычное дело на медленной связи с
@@ -2756,17 +2808,22 @@ function setupSummaryTab() {
     // перерисовываем список при каждом заходе на вкладку — это дёшево (пара
     // десятков строк) и сразу подхватывает уже загруженный список складов;
     // текущий выбор пользователя не теряется — он всегда восстанавливается
-    // из сохранённого фильтра сразу после отрисовки.
+    // из сохранённого фильтра сразу после отрисовки. То же самое для чек-листа
+    // СКЮ — справочник skuList тоже может подгрузиться позже первого захода.
     renderWhChecklist("summaryWarehouses", () => { saveFilter("flt_summaryWarehouses", getWhChecked("summaryWarehouses")); debouncedLoadSummary(); });
     restoreWhChecklist("summaryWarehouses", loadFilter("flt_summaryWarehouses"));
+    renderSkuChecklist("summarySkus", () => { saveFilter("flt_summarySkus", getSkuChecked("summarySkus")); renderSummary(window.__lastSummaryResponse || { items: [] }); });
+    restoreSkuChecklist("summarySkus", loadFilter("flt_summarySkus"));
   } else {
     whRow.classList.add("hidden");
+    skuRow.classList.add("hidden");
   }
 }
 document.getElementById("summaryOpType").addEventListener("change", () => saveFilter("flt_summaryOpType", document.getElementById("summaryOpType").value));
 document.getElementById("summaryDate").addEventListener("change", () => saveFilter("flt_summaryDate", document.getElementById("summaryDate").value));
 document.getElementById("applySummaryBtn").onclick = loadSummary;
 document.getElementById("summaryWhClearBtn").onclick = () => { clearWhChecklist("summaryWarehouses"); saveFilter("flt_summaryWarehouses", []); loadSummary(); };
+document.getElementById("summarySkuClearBtn").onclick = () => { clearSkuChecklist("summarySkus"); saveFilter("flt_summarySkus", []); renderSummary(window.__lastSummaryResponse || { items: [] }); };
 
 let summaryReqToken = 0; // та же защита от гонки ответов, что и у stockReqToken выше
 async function loadSummary() {
@@ -2785,6 +2842,7 @@ async function loadSummary() {
   try {
     const r = await apiGet({ action: "summary", opType, date, warehouses });
     if (myToken !== summaryReqToken) return;
+    window.__lastSummaryResponse = r; // нужен для переприменения фильтра СКЮ без похода на сервер (см. ниже)
     renderSummary(r);
   } catch (e) { if (myToken === summaryReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
 }
@@ -2796,20 +2854,74 @@ function statusPill(status) {
   return `<span class="status-pill ${status === "Превышен" ? "status-bad" : "status-ok"}">${status}</span>`;
 }
 
+// Склад операции определяем так же, как это делает бэкенд при формировании
+// сводки (см. getSummary в Apps Script): для "Приход" склад-получатель — это
+// "Куда", для "Расход" (отгрузки) — "Откуда", для "Сканирование" from==to.
+// Держим эту логику и на фронтенде, чтобы сгруппировать уже полученные строки
+// по складу — без изменений бэкенда и без лишнего похода на сервер.
+function summaryItemWarehouse(it, opType) {
+  if (opType === "Приход") return it.to;
+  if (opType === "Расход") return it.from;
+  return it.to || it.from;
+}
+
 function renderSummary(r) {
   const el = document.getElementById("summaryResult");
-  const items = r.items || [];
+  let items = r.items || [];
+
+  // Фильтр по СКЮ (чек-лист виден только Админу) — применяется прямо к уже
+  // загруженным данным, без повторного запроса к серверу: сервер фильтрует
+  // только по складам/дате/типу, а по СКЮ — сами на фронтенде.
+  let skuFilterActive = false;
+  if (ME.role === "Админ") {
+    const skuCodes = getSkuChecked("summarySkus");
+    if (skuCodes.length) {
+      skuFilterActive = true;
+      items = items.filter(it => skuCodes.indexOf(String(it.lot)) !== -1);
+    }
+  }
+
   window.__summaryFlatItems = items;
   if (!items.length) {
     const opWord = r.opType === "Расход" ? "отгрузки" : (r.opType === "Сканирование" ? "сканирования" : "оприходования");
-    el.innerHTML = `<div class="muted" style="padding:6px 2px;">Нет операций «${opWord}» за ${ddmmyyyy(r.date)}.</div>`;
+    const suffix = skuFilterActive ? " по выбранным СКЮ" : "";
+    el.innerHTML = `<div class="muted" style="padding:6px 2px;">Нет операций «${opWord}» за ${ddmmyyyy(r.date)}${suffix}.</div>`;
     return;
   }
-  const hasComments = items.some(it => it.comment);
-  let html = `<div class="card"><div style="display:flex; justify-content:space-between; align-items:center;"><b>Операции за ${ddmmyyyy(r.date)}</b><button class="btn small secondary" onclick="window.__exportSummaryFlat()">⬇ Excel</button></div>
-    <div class="table-scroll"><table><tr><th>Время</th><th>Пользователь</th><th>Операция</th><th>Откуда</th><th>Куда</th><th>Код СКЮ</th><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th>${hasComments ? "<th>Комментарий получателя</th>" : ""}</tr>
-    ${items.map(it => `<tr><td>${new Date(it.ts).toLocaleTimeString("ru-RU")}</td><td>${it.user}</td><td>${it.op}</td><td>${it.from}</td><td>${it.to}</td><td>${it.lot}</td><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td>${hasComments ? `<td>${it.comment ? `<span class="warn" style="padding:2px 6px; border-radius:6px;">${it.comment}</span>` : ""}</td>` : ""}</tr>`).join("")}
-    </table></div></div>`;
+
+  // Группируем по складу, чтобы отчёты разных складов были видны отдельно
+  // друг от друга (раньше была одна общая таблица сразу на все склады).
+  const groups = {};
+  items.forEach(it => {
+    const wh = summaryItemWarehouse(it, r.opType) || "—";
+    (groups[wh] = groups[wh] || []).push(it);
+  });
+  const whNames = Object.keys(groups).sort((a, b) => a.localeCompare(b, "ru"));
+  const isScan = r.opType === "Сканирование";
+
+  let html = `<div class="card" style="display:flex; justify-content:space-between; align-items:center;"><b>Операции за ${ddmmyyyy(r.date)}</b><button class="btn small secondary" onclick="window.__exportSummaryFlat()">⬇ Excel</button></div>`;
+
+  whNames.forEach(wh => {
+    const whItems = groups[wh];
+    const hasComments = whItems.some(it => it.comment);
+    const users = Array.from(new Set(whItems.map(it => it.user).filter(Boolean)));
+    let lastTs = null;
+    whItems.forEach(it => { if (it.ts && (!lastTs || new Date(it.ts) > new Date(lastTs))) lastTs = it.ts; });
+    const exceededCount = whItems.filter(it => it.status === "Превышен").length;
+    // Колонки "Время"/"Пользователь"/"Операция"/"Откуда"/"Куда"/"Код СКЮ" убраны
+    // из таблицы — они теперь одной строкой в маленьком итоге под таблицей
+    // (пользователь и время последней записи), а не дублируются на каждую строку.
+    html += `<div class="card">
+      <div style="font-weight:700; margin-bottom:8px;">${wh}</div>
+      <div class="table-scroll"><table><tr><th>Наименование</th><th>Дата произв.</th><th>Кол-во</th><th>Статус</th>${hasComments ? "<th>Комментарий получателя</th>" : ""}</tr>
+      ${whItems.map(it => `<tr><td>${it.skuName||""}</td><td>${ddmmyyyy(it.prodDate)}</td><td>${it.qty}</td><td>${statusPill(it.status)}</td>${hasComments ? `<td>${it.comment ? `<span class="warn" style="padding:2px 6px; border-radius:6px;">${it.comment}</span>` : ""}</td>` : ""}</tr>`).join("")}
+      </table></div>
+      <div class="muted" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-size:12px;">
+        Пользователь: <b>${users.join(", ") || "—"}</b> · ${isScan ? "Последнее сканирование" : "Последняя операция"}: <b>${lastTs ? new Date(lastTs).toLocaleTimeString("ru-RU") : "—"}</b> · Всего ${isScan ? "сканирований" : "операций"}: <b>${whItems.length}</b> · Превышают срок: <b>${exceededCount}</b>
+      </div>
+    </div>`;
+  });
+
   el.innerHTML = html;
 }
 
