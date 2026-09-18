@@ -740,6 +740,75 @@ let skuList = [];         // [{code,name,group}, ...] — справочник �
 let skuCodesSet = null;   // Set нормализованных кодов для быстрой проверки при сканировании
 let scanLocked = false;
 
+// ---------- офлайн-кэш справочников (склады/агенты/цеха/СКЮ) ----------
+// Раньше эти списки грузились ТОЛЬКО с сервера при каждом входе и нигде не
+// сохранялись — если открыть приложение вообще без интернета (склад без
+// связи), справочники оставались пустыми, и сканер не мог проверить код
+// СКЮ на этикетке (сам штрих-код читается камерой локально, без сети, но
+// без справочника его не с чем сверить). Теперь при каждой успешной
+// загрузке сохраняем последний известный список на телефон (localStorage),
+// а если в следующий раз сети нет — подхватываем именно его. Сессия входа
+// ("Запомнить меня") и так уже восстанавливается без сети (см.
+// restoreSession ниже) — этим кэшем закрываем последний недостающий кусок
+// полностью офлайн-старта. Сами "Провести"/сканы уже уходят в очередь
+// (docQueue выше) и отправляются в Таблицу, когда связь вернётся.
+const REF_CACHE_KEY = "refDataCache_v1";
+function saveRefDataCache() {
+  try {
+    localStorage.setItem(REF_CACHE_KEY, JSON.stringify({
+      warehouses: warehousesList, agents: agentsList, shops: shopsList, skus: skuList,
+      savedAt: Date.now()
+    }));
+  } catch (e) {}
+}
+function loadRefDataCache() {
+  try {
+    const raw = localStorage.getItem(REF_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+// Тихое фоновое обновление справочников, когда связь появилась/вернулась.
+// Если приложение долго работало офлайн на сохранённом кэше, а в это время
+// кто-то поменял данные в Google Таблице (добавили/переименовали склад,
+// добавили СКЮ) — само приложение об этом не узнает, пока не перезайдёшь.
+// Как только связь есть — тихо (без тостов и без прерывания того, что
+// человек сейчас делает) перезапрашиваем справочники и подменяем их и в
+// памяти, и в офлайн-кэше на свежие. Специально НЕ трогаем здесь видимые
+// выпадающие списки (applyModeUI/setupSnapshotFilter) — если человек как
+// раз выбрал склад и сканирует, фоновая перерисовка могла бы сбросить его
+// выбор; свежий список подставится в списки сам, как только он в следующий
+// раз переключит режим или перезайдёт. Для самого сканирования (главное,
+// из-за чего это вообще нужно) обновление применяется сразу — skuCodesSet
+// используется "вживую" при каждом скане, копию никто не хранит.
+let refDataRefreshInFlight = false;
+async function refreshRefDataFromServer() {
+  if (!ME || refDataRefreshInFlight) return;
+  refDataRefreshInFlight = true;
+  try {
+    const results = await Promise.allSettled([
+      apiGet({ action: "warehouses" }),
+      apiGet({ action: "agents" }),
+      apiGet({ action: "shops" }),
+      apiGet({ action: "skus" })
+    ]);
+    const [whRes, agentsRes, shopsRes, skusRes] = results;
+    let changed = false;
+    // Обновляем только то, что реально пришло — частичный сбой сети (пришли
+    // СКЮ, а склады нет) не должен затирать уже рабочие данные пустотой.
+    if (whRes.status === "fulfilled") { warehousesList = whRes.value.warehouses || []; changed = true; }
+    if (agentsRes.status === "fulfilled") { agentsList = agentsRes.value.agents || []; changed = true; }
+    if (shopsRes.status === "fulfilled") { shopsList = shopsRes.value.shops || []; changed = true; }
+    if (skusRes.status === "fulfilled") {
+      skuList = skusRes.value.skus || [];
+      skuCodesSet = new Set(skuList.map(s => String(s.code).trim().toLowerCase()));
+      changed = true;
+    }
+    if (changed) saveRefDataCache();
+  } catch (e) { /* тихая фоновая попытка — не показываем пользователю ошибку */ }
+  finally { refDataRefreshInFlight = false; }
+}
+
 // ---------- звук при успешном сканировании (можно отключить, кнопка рядом с фонариком) ----------
 let scanSoundOn = true;
 try { const saved = localStorage.getItem("scanSoundOn"); if (saved !== null) scanSoundOn = saved === "1"; } catch (e) {}
@@ -963,18 +1032,33 @@ async function showMain() {
   // выпадающих списков "откуда/куда"/агент — грузим их в фоне ПАРАЛЛЕЛЬНО
   // (не по очереди), и когда они придут — обновляем поля текущего режима,
   // не трогая ни выбранный режим, ни уже начатый список сканирования.
-  const [whRes, agentsRes, shopsRes, skusRes] = await Promise.all([
-    apiGet({ action: "warehouses" }).catch(() => ({ warehouses: [] })),
-    apiGet({ action: "agents" }).catch(() => ({ agents: [] })),
-    apiGet({ action: "shops" }).catch(() => ({ shops: [] })),
-    apiGet({ action: "skus" }).catch(() => ({ skus: [] }))
+  // Promise.allSettled (а не Promise.all + .catch на пустой массив) — чтобы
+  // РАЗЛИЧАТЬ "сервер ответил: список пуст" и "сети вообще нет": во втором
+  // случае подставляем последний известный список из офлайн-кэша (см. выше),
+  // а не пустой — иначе без интернета сканер не узнал бы ни один код СКЮ.
+  const results = await Promise.allSettled([
+    apiGet({ action: "warehouses" }),
+    apiGet({ action: "agents" }),
+    apiGet({ action: "shops" }),
+    apiGet({ action: "skus" })
   ]);
-  warehousesList = whRes.warehouses || [];
-  agentsList = agentsRes.agents || [];
+  const [whRes, agentsRes, shopsRes, skusRes] = results;
+  const anyOffline = results.some(r => r.status === "rejected");
+  const cache = anyOffline ? loadRefDataCache() : null;
+  warehousesList = whRes.status === "fulfilled" ? (whRes.value.warehouses || []) : ((cache && cache.warehouses) || []);
+  agentsList = agentsRes.status === "fulfilled" ? (agentsRes.value.agents || []) : ((cache && cache.agents) || []);
   renderAgentsDatalist();
-  shopsList = shopsRes.shops || [];
-  skuList = skusRes.skus || [];
+  shopsList = shopsRes.status === "fulfilled" ? (shopsRes.value.shops || []) : ((cache && cache.shops) || []);
+  skuList = skusRes.status === "fulfilled" ? (skusRes.value.skus || []) : ((cache && cache.skus) || []);
   skuCodesSet = new Set(skuList.map(s => String(s.code).trim().toLowerCase()));
+  saveRefDataCache(); // обновляем кэш свежими данными (а если офлайн — молча пересохраняем то же самое, без вреда)
+  if (anyOffline) {
+    if (cache) {
+      showFloatingToast("📡 Нет связи — используются сохранённые ранее склады/СКЮ", "warn");
+    } else {
+      showFloatingToast("📡 Нет связи, и сохранённых справочников ещё нет — откройте приложение один раз с интернетом", "warn");
+    }
+  }
 
   applyModeUI(); // подставляем реальные списки складов/агентов/цехов в поля текущего режима
   setupSnapshotFilter(); // чек-лист складов в "Остатках" тоже зависит от warehousesList
@@ -1471,10 +1555,11 @@ function renderCommittedHistory() {
     </div>`).join("");
 }
 
-window.addEventListener("online", () => attemptFlushDocQueue());
+window.addEventListener("online", () => { attemptFlushDocQueue(); refreshRefDataFromServer(); });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
   attemptFlushDocQueue();
+  refreshRefDataFromServer(); // вернулись в приложение (например, из офлайна) — тихо подтягиваем свежие склады/СКЮ, если Таблицу успели поменять
   // Раньше счётчик "Входящие" обновлялся только один раз при входе — если
   // склад-отправитель проводил отгрузку, пока получатель уже сидел в
   // приложении, бейдж не менялся, пока не перелогиниться — выглядело как
@@ -1482,6 +1567,7 @@ document.addEventListener("visibilitychange", () => {
   if (ME && ME.role !== "Админ" && ME.role !== "Аудитор") { refreshPendingBadge(); refreshSentBadge(); }
 });
 setInterval(() => attemptFlushDocQueue(), 20000); // подстраховка на случай, если событие "online" не сработало (бывает на некоторых мобильных браузерах)
+setInterval(() => refreshRefDataFromServer(), 300000); // та же подстраховка для справочников — раз в 5 минут, даже если "online" не сработал и на вкладку не возвращались
 setInterval(() => { if (ME && ME.role !== "Админ" && ME.role !== "Аудитор") { refreshPendingBadge(); refreshSentBadge(); } }, 45000); // живой счётчик "Входящие"/"Отправленные" — не только при входе
 
 // Возвращает список того, чего не хватает для проведения ({from,to,cart}),
@@ -2145,7 +2231,16 @@ function renderLast3() {
 function closeScanner() {
   stopNativeScanLoop();
   if (html5QrCode) {
-    html5QrCode.stop().then(() => { try { html5QrCode.clear(); } catch (e) {} }).catch(() => {});
+    // .stop() может не только отклонить промис (это уже ловилось через
+    // .catch), но и бросить исключение СИНХРОННО — например, если камера так
+    // и не успела/смогла запуститься (нет разрешения, недоступна, и т.п.) и
+    // библиотека считает, что сканер "не запущен". Раньше такой синхронный
+    // throw не ловился, прерывал closeScanner() на середине — оверлей
+    // сканера так и оставался видимым (перекрывал экран) даже после нажатия
+    // ✕. Оборачиваем в try/catch — оверлей теперь закрывается в любом случае.
+    try {
+      html5QrCode.stop().then(() => { try { html5QrCode.clear(); } catch (e) {} }).catch(() => {});
+    } catch (e) { try { html5QrCode.clear(); } catch (e2) {} }
   }
   if (scanViewportCleanup) { try { scanViewportCleanup(); } catch (e) {} scanViewportCleanup = null; }
   document.getElementById("scanOverlay").classList.add("hidden");
