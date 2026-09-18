@@ -211,7 +211,9 @@
   .scan-topbar {
     position:absolute; top:0; left:0; right:0; z-index:2; display:flex; align-items:center; justify-content:space-between;
     padding: max(10px, env(safe-area-inset-top)) 12px 30px; background:linear-gradient(rgba(0,0,0,.6), transparent);
-    border-bottom:3px solid var(--mode-color, var(--red));
+    /* Раньше здесь была цветная (под цвет режима) полоска border-bottom —
+       убрана по просьбе: визуально путала с чем-то функциональным на экране
+       сканирования (казалось частью самого сканера), а не просто декором. */
   }
   .icon-btn { width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,.18); border:none; color:#fff; font-size:17px; cursor:pointer; }
   .scan-counter-pill { color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.4); padding:6px 12px; border-radius:20px; }
@@ -253,10 +255,11 @@
   .qty-modal-card input#qeQty { text-align:center; font-size:28px; font-weight:700; padding:14px 10px; }
   /* Подсказка-водяной знак внутри пустого поля («Укажите блок») по умолчанию
      наследует те же 28px/700, что и набранные цифры, — из-за этого выглядела
-     слишком "ярко"/жирно, почти как настоящий ввод. Делаем её заметно тише:
-     обычным начертанием и приглушённым серым цветом (var(--muted), как у
-     остальных подсказок в приложении), а не жирным чёрным/цветным. */
-  .qty-modal-card input#qeQty::placeholder { color: var(--muted); font-weight:400; opacity:1; }
+     слишком "ярко"/жирно, почти как настоящий ввод. var(--muted) (#6b7280)
+     оказался, наоборот, слишком светлым/бледным при таком крупном шрифте —
+     подбираем средний вариант: заметно тише самого ввода, но всё ещё хорошо
+     читается, не сливаясь с белым фоном карточки. */
+  .qty-modal-card input#qeQty::placeholder { color: #4b5563; font-weight:600; opacity:1; }
   .scan-last3 { margin:10px 0 4px; }
   .scan-list-handle {
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
