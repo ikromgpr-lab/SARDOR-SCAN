@@ -1834,10 +1834,12 @@ function openScanner() {
       disableFlip: true,
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       // Раньше распознавали и CODE_39, и CODE_128 — теперь на складах печатают
-      // только CODE_128, а декодер тратит время кадра, проверяя оба формата.
-      // Сканируем один формат — декодер быстрее находит совпадение на каждом
-      // кадре.
-      formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128],
+      // CODE_128 (старые этикетки, ещё в ходу) и QR-код (новые этикетки —
+      // зашифрованные, см. decryptQrPayload ниже). Оба формата оставлены
+      // вместе, чтобы уже напечатанные штрихкоды продолжали сканироваться,
+      // пока склад полностью не перейдёт на QR; когда старых этикеток не
+      // останется — CODE_128 отсюда можно убрать для скорости.
+      formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.QR_CODE],
       videoConstraints: {
         facingMode: "environment",
         frameRate: { ideal: 30, max: 30 },
@@ -1913,9 +1915,10 @@ function computeViewfinderCropRect(videoEl) {
 async function startNativeScanLoop() {
   if (!nativeDetectorSupported()) return false; // нет поддержки — остаёмся на html5-qrcode (fallback уже включён выше)
   try {
-    // Только CODE_128 — этикетки склада печатаются этим форматом, а более
-    // узкий список форматов для BarcodeDetector быстрее распознаёт код.
-    let formats = ["code_128"];
+    // CODE_128 (старые этикетки) + qr_code (новые, зашифрованные). Список
+    // сознательно короткий — чем меньше форматов проверяет BarcodeDetector,
+    // тем быстрее он находит совпадение на каждом кадре.
+    let formats = ["code_128", "qr_code"];
     try {
       const supported = await window.BarcodeDetector.getSupportedFormats();
       const wanted = formats.filter(f => supported.includes(f));
@@ -2071,6 +2074,89 @@ let lastRejectText = "";
 let lastRejectAt = 0;
 const REJECT_REPEAT_COOLDOWN_MS = 1300; // не долбить звуком/текстом на каждый кадр одного и того же чужого кода
 
+// ---------- расшифровка QR-кода (защита от посторонних сканеров) ----------
+// Новые этикетки печатают QR-код, в который данные ("СКЮ-дата") зашиты не
+// напрямую, а через шифрование (RC4-drop768 + Base64) — тот же алгоритм,
+// что в VBA-модуле QR_Generator.bas, которым эти QR-коды печатаются в Excel.
+// Обычная камера/сканер прочитает только нечитаемую строку "ENC1:...", а
+// настоящий "СКЮ-дата" восстанавливает только эта платформа, потому что
+// только у неё (в этом файле) есть тот же секретный ключ.
+//
+// ВАЖНО и честно: секретный ключ лежит прямо в этом файле, а исходный код
+// страницы на GitHub Pages открыт всем — технически подготовленный человек
+// может его найти, открыв "просмотр кода страницы". Это НЕ защита военного
+// уровня и не шифрование "нельзя взломать никогда". Но она полностью
+// закрывает то, ради чего она делалась: случайный сканер, обычный человек
+// с телефоном или чужое приложение для чтения QR увидят только "ENC1:..."
+// и не поймут, что там на самом деле — реальные данные читает только эта
+// платформа.
+//
+// КЛЮЧ ДОЛЖЕН БЫТЬ ТОЧНО ТАКИМ ЖЕ, как secretKey, который вы указываете при
+// вызове QR_InsertAt/QR_Demo в Excel-модуле QR_Generator.bas. Если поменяете
+// ключ здесь — поменяйте и там, иначе платформа не сможет прочитать новые
+// этикетки.
+const QR_SECRET_KEY = "SARDOR-2026";
+const QR_ENC_PREFIX = "ENC1:";
+const QR_RC4_DROP = 768;
+
+// Стандартный Base64 (тот же алфавит, что в VBA-модуле) — используем
+// встроенный в браузер atob, поэтому свой Base64-парсер не нужен.
+function qrBase64ToBytes(b64) {
+  const binStr = atob(b64);
+  const bytes = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+  return bytes;
+}
+
+// Поточный шифр RC4 с отбросом первых 768 байт потока (устраняет известную
+// статистическую слабость начала RC4). Симметричная функция: тем же кодом
+// шифруют (в Excel) и расшифровывают (здесь) — просто применяют её ещё раз
+// с тем же ключом.
+function qrRc4KeystreamXor(dataBytes, keyBytes) {
+  const s = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) s[i] = i;
+  let j = 0;
+  const klen = keyBytes.length;
+  for (let i = 0; i < 256; i++) {
+    j = (j + s[i] + keyBytes[i % klen]) & 255;
+    const t = s[i]; s[i] = s[j]; s[j] = t;
+  }
+  let ii = 0, jj = 0;
+  for (let i = 0; i < QR_RC4_DROP; i++) {
+    ii = (ii + 1) & 255;
+    jj = (jj + s[ii]) & 255;
+    const t = s[ii]; s[ii] = s[jj]; s[jj] = t;
+  }
+  const out = new Uint8Array(dataBytes.length);
+  for (let k = 0; k < dataBytes.length; k++) {
+    ii = (ii + 1) & 255;
+    jj = (jj + s[ii]) & 255;
+    const t = s[ii]; s[ii] = s[jj]; s[jj] = t;
+    const ks = s[(s[ii] + s[jj]) & 255];
+    out[k] = dataBytes[k] ^ ks;
+  }
+  return out;
+}
+
+// Если код зашифрован этим модулем ("ENC1:...") — расшифровывает и
+// возвращает настоящий текст ("СКЮ-дата"). Если код не начинается с этого
+// префикса — значит, это старая этикетка со штрихкодом CODE_128 без
+// шифрования, возвращаем текст как есть (совместимость со старыми
+// этикетками). Если расшифровка не удалась (неверный ключ / чужой QR,
+// например от совсем другого приложения) — возвращает null.
+function decryptQrPayload(text, key) {
+  if (!text.startsWith(QR_ENC_PREFIX)) return text;
+  try {
+    const payload = text.slice(QR_ENC_PREFIX.length);
+    const cipherBytes = qrBase64ToBytes(payload);
+    const keyBytes = new TextEncoder().encode(key);
+    const plainBytes = qrRc4KeystreamXor(cipherBytes, keyBytes);
+    return new TextDecoder("utf-8", { fatal: true }).decode(plainBytes);
+  } catch (e) {
+    return null;
+  }
+}
+
 function flashReject(message) {
   const hint = document.getElementById("scanHintText");
   hint.textContent = message;
@@ -2084,7 +2170,23 @@ function flashReject(message) {
 
 function onScanDecoded(decodedText) {
   if (scanLocked) return; // пока открыта карточка ввода количества — новые кадры игнорируем
-  const p = parseCode(decodedText);
+
+  // Новые QR-этикетки зашифрованы (см. decryptQrPayload выше) — сначала
+  // восстанавливаем настоящий текст "СКЮ-дата". Старые CODE_128-этикетки
+  // не зашифрованы — decryptQrPayload вернёт их без изменений.
+  const realText = decryptQrPayload(decodedText, QR_SECRET_KEY);
+  if (realText === null) {
+    // Расшифровка не удалась — это либо чужой QR-код (не наша платформа),
+    // либо повреждённые данные. Реагируем как на посторонний код.
+    const now = Date.now();
+    if (decodedText === lastRejectText && now - lastRejectAt < REJECT_REPEAT_COOLDOWN_MS) return;
+    lastRejectText = decodedText; lastRejectAt = now;
+    playRejectBeep();
+    flashReject("✕ Это не наша этикетка (не тот формат) — игнорируется");
+    return;
+  }
+
+  const p = parseCode(realText);
 
   if (!p.ok) {
     // Код прочитан, но не подходит: либо это вообще не наш формат этикетки
