@@ -339,6 +339,13 @@
   }
   .zoom-hint.zh-off { opacity:0; pointer-events:none; }
 
+  .focus-hint {
+    position:absolute; left:50%; bottom:44px; transform:translateX(-50%); z-index:2;
+    color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.45);
+    padding:6px 14px; border-radius:20px; white-space:nowrap; opacity:1; transition:opacity .5s ease;
+  }
+  .focus-hint.fh-off { opacity:0; pointer-events:none; }
+
   @media (min-width: 720px) {
     .app-content { max-width: 760px; }
     .card { padding:20px; }
@@ -678,6 +685,7 @@
       <span class="corner bl"></span><span class="corner br"></span>
     </div>
     <div class="zoom-hint zh-off" id="zoomHint">🤏 Разведите пальцы на экране, чтобы приблизить</div>
+    <div class="focus-hint fh-off" id="focusHint">👆 Если картинка размытая — коснитесь экрана</div>
     <div class="scan-topbar">
       <button class="icon-btn" id="scanCloseBtn" aria-label="Закрыть">✕</button>
       <div class="scan-counter-pill">Отсканировано: <b id="scanCounter">0</b></div>
@@ -1852,6 +1860,7 @@ function openScanner() {
   ).then(async () => {
     setupTorchButton();
     setupFocusMode();
+    setupTapToFocus();
     setupPinchZoom();
     const usingNative = await startNativeScanLoop();
     if (usingNative) {
@@ -1995,6 +2004,8 @@ function getActiveVideoTrack() {
   } catch (e) { return null; }
 }
 
+let focusRetryTimer = null;
+
 function setupFocusMode() {
   // Непрерывный автофокус/экспозиция/баланс белого (continuous) — камера сама
   // постоянно подстраивает резкость, яркость и цвет, что особенно важно для
@@ -2004,18 +2015,79 @@ function setupFocusMode() {
   // это тоже ощущается как "навёл — и долго думает". Поддерживается не на всех
   // устройствах (в основном Chrome/Android) — там, где какой-то из режимов нет,
   // просто пропускаем именно его, остальное всё равно включаем.
+  clearInterval(focusRetryTimer);
+  focusRetryTimer = null;
   try {
     const track = getActiveVideoTrack();
     if (!track || !track.getCapabilities) return;
     const caps = track.getCapabilities();
     const advanced = {};
-    if (caps.focusMode && caps.focusMode.includes("continuous")) advanced.focusMode = "continuous";
     if (caps.exposureMode && caps.exposureMode.includes("continuous")) advanced.exposureMode = "continuous";
     if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes("continuous")) advanced.whiteBalanceMode = "continuous";
     if (Object.keys(advanced).length) {
       track.applyConstraints({ advanced: [advanced] }).catch(() => {});
     }
+
+    if (caps.focusMode && caps.focusMode.includes("continuous")) {
+      // Основной путь — как и раньше.
+      track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+    } else if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+      // На части устройств (некоторые Android-камеры/браузеры) настоящего
+      // continuous-автофокуса нет, только "однократный" (single-shot) — сам
+      // по себе он один раз сфокусируется и дальше не подстраивается, из-за
+      // чего картинка "застывает" размытой, если расстояние до этикетки
+      // изменилось. Периодически подталкиваем его перефокусироваться —
+      // грубее, чем continuous, но лучше застывшего размытого кадра.
+      const refocus = () => track.applyConstraints({ advanced: [{ focusMode: "single-shot" }] }).catch(() => {});
+      refocus();
+      focusRetryTimer = setInterval(refocus, 1500);
+      showFocusHint();
+    } else {
+      // Камера вообще не сообщает поддержку ни continuous, ни single-shot —
+      // повлиять на фокус с веб-страницы невозможно (ограничение конкретного
+      // устройства/браузера, а не этого приложения). Показываем подсказку —
+      // единственное, что здесь может помочь, это тап по видео (см.
+      // setupTapToFocus) или зум (переключает физическую камеру у части
+      // телефонов, а у неё может быть лучше автофокус).
+      showFocusHint();
+    }
   } catch (e) { /* автофокус/экспозиция недоступны — не критично, останется обычный */ }
+}
+
+function showFocusHint() {
+  const hint = document.getElementById("focusHint");
+  if (!hint) return;
+  hint.classList.remove("fh-off");
+  clearTimeout(hint._hideTimer);
+  hint._hideTimer = setTimeout(() => hint.classList.add("fh-off"), 4000);
+}
+
+// Тап по видео — "толчок" фокуса вручную. На некоторых телефонах камера
+// после открытия сканера застывает на неверном фокусе (размытая картинка,
+// которая сама не проходит); повторное применение ограничений фокуса —
+// тот же приём, что и в setupFocusMode — часто реально сдвигает её с места
+// (это ровно то, что делает тап-фокус в обычном приложении камеры). Если
+// устройство фокус вообще не поддерживает — тап просто ничего не сломает.
+function setupTapToFocus() {
+  const wrap = document.querySelector(".scan-video-wrap");
+  if (!wrap || wrap._tapFocusBound) return;
+  wrap._tapFocusBound = true;
+  wrap.addEventListener("click", () => {
+    try {
+      const track = getActiveVideoTrack();
+      if (!track || !track.getCapabilities) return;
+      const caps = track.getCapabilities();
+      if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+        track.applyConstraints({ advanced: [{ focusMode: "single-shot" }] }).catch(() => {});
+      } else if (caps.focusMode && caps.focusMode.includes("continuous")) {
+        // Кратковременный переход в "manual" и обратно в "continuous" на
+        // некоторых устройствах сбрасывает застывший автофокус.
+        track.applyConstraints({ advanced: [{ focusMode: "manual" }] })
+          .then(() => track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }))
+          .catch(() => {});
+      }
+    } catch (e) { /* тап без эффекта — не критично */ }
+  }, { passive: true });
 }
 
 // ---------- зум щипком двух пальцев — приблизить мелкий штрих-код ----------
@@ -2330,6 +2402,8 @@ function renderLast3() {
 })();
 
 function closeScanner() {
+  clearInterval(focusRetryTimer);
+  focusRetryTimer = null;
   stopNativeScanLoop();
   if (html5QrCode) {
     // .stop() может не только отклонить промис (это уже ловилось через
