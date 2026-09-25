@@ -991,7 +991,16 @@ function clearSavedFilters() {
 // совпасть с одной из позиций справочника СКЮ (загружается при входе) — это
 // сохраняет прежнюю строгость: случайный посторонний штрих-код тихо
 // игнорируется, а не парсится как попало.
-const LABEL_RE = /^(.+)-(\d{2})\.(\d{2})\.(\d{4})$/;
+// Основной шаблон "КОД-ДД.ММ.ГГГГ" плюс НЕОБЯЗАТЕЛЬНЫЙ хвост любой формы
+// после даты — на этикетке периодически дописываются/переставляются
+// дополнительные служебные поля (номер протокола, смена, код оператора,
+// код упаковщика, № оборудования и т.п.), и состав/порядок этих полей
+// менялся уже несколько раз. Раз проверка кода СКЮ и даты всё равно строгая
+// (см. isKnownSkuCode/isValidCalendarDate ниже), хвост после даты больше не
+// обязан иметь какой-то конкретный вид — "-.*" пропускает любое количество
+// доп.полей, разделённых дефисами, включая пустые (--) и висящий дефис в
+// конце — лишь бы "КОД-ДД.ММ.ГГГГ" в начале распознавалось верно.
+const LABEL_RE = /^(.+)-(\d{2})\.(\d{2})\.(\d{4})(?:-(.*))?$/;
 const SCAN_HINT_DEFAULT = "Наведите камеру на штрих-код этикетки";
 function isKnownSkuCode(code) {
   if (!skuCodesSet || skuCodesSet.size === 0) return true; // справочник ещё не загрузился — не блокируем сканирование
@@ -1389,11 +1398,12 @@ function parseCode(text) {
   const clean = text.replace(/\*/g, "").trim();
   const m = clean.match(LABEL_RE);
   if (!m) return { ok: false, reason: "format" };
-  const [, lotRaw, dd, mm, yyyy] = m;
+  const [, lotRaw, dd, mm, yyyy, protocolRaw] = m;
   const lot = lotRaw.trim();
+  const protocol = protocolRaw ? protocolRaw.trim() : "";
   if (!isValidCalendarDate(dd, mm, yyyy)) return { ok: false, reason: "bad_date", badDate: `${dd}.${mm}.${yyyy}` };
   if (!isKnownSkuCode(lot)) return { ok: false, reason: "unknown_sku", lot };
-  return { ok: true, lot, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
+  return { ok: true, lot, protocol, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
 }
 // Партия с датой производства "в будущем" (относительно фактической даты
 // сканирования) физически невозможна — это либо ошибка сканирования, либо
