@@ -276,15 +276,59 @@
        обрезает кадр камеры РОВНО по этой рамке — то, что снаружи, физически
        не попадает в кадр для распознавания, поэтому соседний код на этикетке
        не подхватывается случайно. aspect-ratio держит рамку квадратной на
-       любом экране, а не только при этой конкретной ширине. */
+       любом экране, а не только при этой конкретной ширине.
+       Три состояния (переключаются JS-классами vf-ok/vf-err, см.
+       setViewfinderOk()/flashViewfinderError()):
+         - обычное (ни один класс) — рамка "дышит" мягким белым пульсом,
+           просто чтобы не выглядеть мёртвой в ожидании кадра;
+         - .vf-ok — код распознан и подходит: рамка загорается зелёным и
+           ОСТАЁТСЯ зелёной, пока не введено количество (снимается в
+           closeQuickEntry(), т.е. и после "Добавить", и после "Отменить");
+         - .vf-err — код прочитан, но отклонён (чужой/неизвестный код,
+           плохая дата, дата в будущем) — короткая красная вспышка со звуком
+           (playRejectBeep()), после чего рамка гаснет и сканирование само
+           продолжается, ничего вводить не нужно. */
     position:absolute; top:42%; left:50%; width:72%; max-width:300px; aspect-ratio:1/1;
-    transform:translate(-50%,-50%); box-shadow:0 0 0 2000px rgba(0,0,0,.5); border-radius:18px; pointer-events:none;
+    transform:translate(-50%,-50%); border-radius:22px; pointer-events:none;
+    box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 3px rgba(255,255,255,.55);
+    transition: box-shadow .18s ease;
+    animation: vfIdlePulse 2.6s ease-in-out infinite;
   }
-  .corner { position:absolute; width:26px; height:26px; border:3px solid #fff; }
-  .corner.tl { top:-3px; left:-3px; border-right:none; border-bottom:none; border-top-left-radius:14px; }
-  .corner.tr { top:-3px; right:-3px; border-left:none; border-bottom:none; border-top-right-radius:14px; }
-  .corner.bl { bottom:-3px; left:-3px; border-right:none; border-top:none; border-bottom-left-radius:14px; }
-  .corner.br { bottom:-3px; right:-3px; border-left:none; border-top:none; border-bottom-right-radius:14px; }
+  @keyframes vfIdlePulse {
+    0%, 100% { box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 3px rgba(255,255,255,.4); }
+    50%      { box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 3px rgba(255,255,255,.85), 0 0 18px 2px rgba(255,255,255,.25); }
+  }
+  .viewfinder.vf-ok {
+    animation:none;
+    box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 4px #2ecc71, 0 0 26px 5px rgba(46,204,113,.55);
+  }
+  .viewfinder.vf-err {
+    animation: vfErrShake .4s ease;
+    box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 4px #e64b3c, 0 0 26px 5px rgba(230,75,60,.55);
+  }
+  @keyframes vfErrShake {
+    0%, 100% { transform:translate(-50%,-50%); }
+    25% { transform:translate(calc(-50% - 4px),-50%); }
+    75% { transform:translate(calc(-50% + 4px),-50%); }
+  }
+  .corner { position:absolute; width:30px; height:30px; border:4px solid #fff; transition: border-color .18s ease, filter .18s ease; filter: drop-shadow(0 0 3px rgba(0,0,0,.5)); }
+  .corner.tl { top:-4px; left:-4px; border-right:none; border-bottom:none; border-top-left-radius:16px; }
+  .corner.tr { top:-4px; right:-4px; border-left:none; border-bottom:none; border-top-right-radius:16px; }
+  .corner.bl { bottom:-4px; left:-4px; border-right:none; border-top:none; border-bottom-left-radius:16px; }
+  .corner.br { bottom:-4px; right:-4px; border-left:none; border-top:none; border-bottom-right-radius:16px; }
+  .viewfinder.vf-ok .corner { border-color:#2ecc71; filter: drop-shadow(0 0 6px rgba(46,204,113,.8)); }
+  .viewfinder.vf-err .corner { border-color:#e64b3c; filter: drop-shadow(0 0 6px rgba(230,75,60,.8)); }
+  /* Небольшая подпись прямо на рамке — чтобы было понятно с первого взгляда,
+     что означает цвет, а не только цветом (доступность + просто приятнее). */
+  .vf-status-chip {
+    position:absolute; left:50%; bottom:-38px; transform:translateX(-50%); white-space:nowrap;
+    font-size:12px; font-weight:800; letter-spacing:.02em; padding:5px 14px; border-radius:20px;
+    color:#fff; opacity:0; transition: opacity .15s ease, transform .15s ease; pointer-events:none;
+  }
+  .viewfinder.vf-ok .vf-status-chip { opacity:1; background:#2ecc71; box-shadow:0 4px 12px rgba(46,204,113,.4); }
+  .viewfinder.vf-ok .vf-status-chip::before { content:"✓ Распознано"; }
+  .viewfinder.vf-err .vf-status-chip { opacity:1; background:#e64b3c; box-shadow:0 4px 12px rgba(230,75,60,.4); }
+  .viewfinder.vf-err .vf-status-chip::before { content:"✕ Не подходит"; }
   .scan-topbar {
     position:absolute; top:0; left:0; right:0; z-index:2; display:flex; align-items:center; justify-content:space-between;
     padding: max(10px, env(safe-area-inset-top)) 12px 30px; background:linear-gradient(rgba(0,0,0,.6), transparent);
@@ -292,8 +336,17 @@
        убрана по просьбе: визуально путала с чем-то функциональным на экране
        сканирования (казалось частью самого сканера), а не просто декором. */
   }
-  .icon-btn { width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,.18); border:none; color:#fff; font-size:17px; cursor:pointer; }
-  .scan-counter-pill { color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.4); padding:6px 12px; border-radius:20px; }
+  .icon-btn {
+    width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
+    color:#fff; font-size:17px; cursor:pointer; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    transition: background .15s ease, transform .1s ease;
+  }
+  .icon-btn:active { transform:scale(.92); background:rgba(255,255,255,.24); }
+  .scan-counter-pill {
+    color:#fff; font-size:12.5px; font-weight:700; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
+    padding:7px 14px; border-radius:20px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  }
+  .scan-counter-pill b { color:#ffb3a8; }
   /* Раньше высота этой панели ограничивалась max-height:56dvh — на части
      Android-браузеров dvh уменьшается при открытии клавиатуры, из-за чего
      нижняя часть панели (например «Отменить этот скан») обрезалась и
@@ -302,7 +355,10 @@
      оверлея, в свою очередь, точно подгоняется под видимую область экрана
      через visualViewport — см. pinScanOverlayToViewport()) и прокручивается
      сама при нехватке места — контент никогда не остаётся "за кадром". */
-  .scan-sheet { background:#fff; border-radius:18px 18px 0 0; padding:14px 14px calc(env(safe-area-inset-bottom,0px) + 14px); flex:1 1 auto; min-height:0; overflow-y:auto; }
+  .scan-sheet {
+    background:#fff; border-radius:24px 24px 0 0; padding:16px 16px calc(env(safe-area-inset-bottom,0px) + 14px);
+    flex:1 1 auto; min-height:0; overflow-y:auto; box-shadow:0 -8px 30px rgba(0,0,0,.18);
+  }
   .scan-hint-text { text-align:center; color:var(--muted); font-size:13px; margin:2px 0 10px; }
   .scan-hint-text.warn-flash { color:var(--err-text, #a11d2e); font-weight:700; }
   .scan-mode-label { text-align:center; font-size:11.5px; color:var(--mode-color, var(--red)); font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.02em; }
@@ -321,9 +377,11 @@
     position:absolute; inset:0; z-index:60; display:flex; align-items:center; justify-content:center;
     padding:16px; background:rgba(0,0,0,.55);
   }
+  .qty-modal-overlay { backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
   .qty-modal-card {
-    background:#fff; border-radius:18px; padding:20px 18px calc(env(safe-area-inset-bottom,0px) + 18px);
-    width:100%; max-width:340px; box-shadow:0 14px 44px rgba(0,0,0,.4); max-height:90%; overflow-y:auto;
+    background:#fff; border-radius:22px; border-top:4px solid #2ecc71;
+    padding:20px 18px calc(env(safe-area-inset-bottom,0px) + 18px);
+    width:100%; max-width:340px; box-shadow:0 20px 50px -10px rgba(0,0,0,.45); max-height:90%; overflow-y:auto;
   }
   .qty-modal-card .scan-quick-info { text-align:center; font-size:15px; }
   .qty-modal-card .lbl { text-align:center; }
@@ -758,9 +816,10 @@
 <div id="scanOverlay" class="scan-overlay hidden">
   <div class="scan-video-wrap">
     <div id="reader"></div>
-    <div class="viewfinder">
+    <div class="viewfinder" id="viewfinder">
       <span class="corner tl"></span><span class="corner tr"></span>
       <span class="corner bl"></span><span class="corner br"></span>
+      <span class="vf-status-chip"></span>
     </div>
     <div class="zoom-hint zh-off" id="zoomHint">🤏 Разведите пальцы на экране, чтобы приблизить</div>
     <div class="focus-hint fh-off" id="focusHint">👆 Если картинка размытая — коснитесь экрана</div>
@@ -1000,7 +1059,15 @@ function clearSavedFilters() {
 // обязан иметь какой-то конкретный вид — "-.*" пропускает любое количество
 // доп.полей, разделённых дефисами, включая пустые (--) и висящий дефис в
 // конце — лишь бы "КОД-ДД.ММ.ГГГГ" в начале распознавалось верно.
+// (Сам LABEL_RE больше не используется в parseCode — состав/порядок полей
+// на этикетке меняется слишком часто, см. DATE_ANYWHERE_RE и новую логику
+// разбора ниже. Регэксп оставлен как справочный шаблон "как это выглядит".)
 const LABEL_RE = /^(.+)-(\d{2})\.(\d{2})\.(\d{4})(?:-(.*))?$/;
+// Дата ищется ГДЕ УГОДНО в отсканированном тексте, а не только сразу после
+// первого дефиса — состав и порядок остальных полей (протокол/смена/
+// оператор/упаковщик/оборудование/название) на этикетке менялись уже
+// несколько раз и могут поменяться снова.
+const DATE_ANYWHERE_RE = /(\d{2})\.(\d{2})\.(\d{4})/;
 const SCAN_HINT_DEFAULT = "Наведите камеру на штрих-код этикетки";
 function isKnownSkuCode(code) {
   if (!skuCodesSet || skuCodesSet.size === 0) return true; // справочник ещё не загрузился — не блокируем сканирование
@@ -1384,26 +1451,56 @@ function getTo() {
 }
 
 // ---------- разбор кода этикетки ----------
-// Формат стал гибче: код СКЮ теперь не только 3 цифры (128-...), но и текст
-// (Кекс 4-...), как на реальных этикетках — а строгость (не реагировать на
-// случайные штрих-коды) обеспечивает проверка по справочнику СКЮ ниже.
+// Раньше требовался жёсткий шаблон "КОД-ДД.ММ.ГГГГ[-хвост]" — но состав и
+// порядок полей на этикетке (протокол/смена/оператор/упаковщик/
+// оборудование/название) меняется от версии к версии, и КОД не всегда
+// оказывается первым куском перед датой. Теперь логика такая:
+//   1) дата ищется где угодно в отсканированном тексте (DATE_ANYWHERE_RE) —
+//      неважно, что стоит до/после неё;
+//   2) остаток текста (без самой даты) режется по дефисам на кусочки, и
+//      среди ВСЕХ подряд идущих склеек этих кусочков ищется та, что
+//      целиком совпадает с реальным кодом СКЮ из справочника (загружается
+//      с сервера) — так код находится независимо от того, где он стоит и
+//      что написано рядом (название, протокол, смена и т.п.);
+//   3) если справочник СКЮ ещё не загрузился — не блокируем (как и раньше).
 // Возвращает { ok:true, lot, isoDate, displayDate } при успехе, либо
-// { ok:false, reason } при отказе — reason:"format" (не похоже на нашу
-// этикетку вообще), reason:"bad_date" (форма похожа на дату, но такого дня
-// в календаре не существует — например месяц 13 или 30 февраля) или
-// reason:"unknown_sku" (дата верная, но код не из справочника СКЮ) — так
-// вызывающий код может показать разное сообщение вместо того, чтобы тихо
-// игнорировать посторонний штрих-код.
+// { ok:false, reason } при отказе — reason:"format" (в тексте вообще нет
+// похожей на дату подстроки), reason:"bad_date" (дата похожа по форме, но
+// такого дня в календаре не существует — например месяц 13 или 30 февраля)
+// или reason:"unknown_sku" (дата верная, но нигде в тексте не нашёлся кусок,
+// совпадающий с кодом из справочника СКЮ) — так вызывающий код может
+// показать разное сообщение вместо того, чтобы тихо игнорировать
+// посторонний штрих-код.
+function findKnownSkuPiece(pieces) {
+  // Ищем среди ВСЕХ подряд идущих склеек кусочков (через дефис обратно) ту,
+  // что совпадает с реальным кодом СКЮ — берём самую длинную из найденных,
+  // чтобы код вида "AB-100" (с дефисом внутри самого кода) тоже находился,
+  // а не только его первая половина "AB".
+  let best = null;
+  for (let i = 0; i < pieces.length; i++) {
+    for (let j = i; j < pieces.length; j++) {
+      const candidate = pieces.slice(i, j + 1).join("-").trim();
+      if (candidate && isKnownSkuCode(candidate)) {
+        if (best === null || candidate.length > best.length) best = candidate;
+      }
+    }
+  }
+  return best;
+}
 function parseCode(text) {
   const clean = text.replace(/\*/g, "").trim();
-  const m = clean.match(LABEL_RE);
-  if (!m) return { ok: false, reason: "format" };
-  const [, lotRaw, dd, mm, yyyy, protocolRaw] = m;
-  const lot = lotRaw.trim();
-  const protocol = protocolRaw ? protocolRaw.trim() : "";
+  if (!clean) return { ok: false, reason: "format" };
+  const dm = clean.match(DATE_ANYWHERE_RE);
+  if (!dm) return { ok: false, reason: "format" };
+  const [dateToken, dd, mm, yyyy] = dm;
   if (!isValidCalendarDate(dd, mm, yyyy)) return { ok: false, reason: "bad_date", badDate: `${dd}.${mm}.${yyyy}` };
-  if (!isKnownSkuCode(lot)) return { ok: false, reason: "unknown_sku", lot };
-  return { ok: true, lot, protocol, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
+
+  const pieces = clean.replace(dateToken, "").split("-").map(s => s.trim()).filter(Boolean);
+  const found = findKnownSkuPiece(pieces);
+  if (found === null) {
+    return { ok: false, reason: "unknown_sku", lot: pieces.join(" / ") || clean };
+  }
+  return { ok: true, lot: found, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
 }
 // Партия с датой производства "в будущем" (относительно фактической даты
 // сканирования) физически невозможна — это либо ошибка сканирования, либо
@@ -1906,6 +2003,7 @@ function openScanner() {
   document.getElementById("scanCounter").textContent = cart.length;
   scanLocked = false;
   scanListExpanded = false;
+  setViewfinderOk(false); // на случай, если сканер открыли повторно, пока рамка ещё была зелёной/красной
   const hintEl = document.getElementById("scanHintText");
   hintEl.textContent = SCAN_HINT_DEFAULT;
   hintEl.classList.remove("warn-flash");
@@ -2371,6 +2469,32 @@ function flashReject(message) {
   }, 2200);
 }
 
+// ---------- цвет рамки сканирования (зелёная/красная/обычная) ----------
+// .vf-ok ставится при успехе и держится, пока не закрыта карточка ввода
+// количества (см. closeQuickEntry ниже — она снимает класс и при
+// "Добавить", и при "Отменить"). .vf-err — короткая вспышка при отказе,
+// сама снимается через vfErrTimer и сканирование продолжается без каких-
+// либо действий пользователя.
+let vfErrTimer = null;
+function setViewfinderOk(on) {
+  const vf = document.getElementById("viewfinder");
+  if (!vf) return;
+  clearTimeout(vfErrTimer);
+  vf.classList.remove("vf-err");
+  vf.classList.toggle("vf-ok", on);
+}
+function flashViewfinderError() {
+  const vf = document.getElementById("viewfinder");
+  if (!vf) return;
+  vf.classList.remove("vf-ok");
+  vf.classList.remove("vf-err");
+  // classList.add в следующем кадре — чтобы CSS-анимация вспышки (vfErrShake)
+  // перезапускалась даже если предыдущая ошибка ещё не успела погаснуть.
+  requestAnimationFrame(() => vf.classList.add("vf-err"));
+  clearTimeout(vfErrTimer);
+  vfErrTimer = setTimeout(() => vf.classList.remove("vf-err"), 750);
+}
+
 function onScanDecoded(decodedText) {
   if (scanLocked) return; // пока открыта карточка ввода количества — новые кадры игнорируем
 
@@ -2385,6 +2509,7 @@ function onScanDecoded(decodedText) {
     if (decodedText === lastRejectText && now - lastRejectAt < REJECT_REPEAT_COOLDOWN_MS) return;
     lastRejectText = decodedText; lastRejectAt = now;
     playRejectBeep();
+    flashViewfinderError();
     flashReject("✕ Это не наша этикетка (не тот формат) — игнорируется");
     return;
   }
@@ -2400,6 +2525,7 @@ function onScanDecoded(decodedText) {
     if (decodedText === lastRejectText && now - lastRejectAt < REJECT_REPEAT_COOLDOWN_MS) return;
     lastRejectText = decodedText; lastRejectAt = now;
     playRejectBeep();
+    flashViewfinderError();
     flashReject(p.reason === "unknown_sku"
       ? `✕ Код «${p.lot}» не найден в справочнике СКЮ — игнорируется`
       : p.reason === "bad_date"
@@ -2416,6 +2542,7 @@ function onScanDecoded(decodedText) {
     if (decodedText === lastRejectText && now - lastRejectAt < REJECT_REPEAT_COOLDOWN_MS) return;
     lastRejectText = decodedText; lastRejectAt = now;
     playRejectBeep();
+    flashViewfinderError();
     flashReject(`✕ Дата ${p.displayDate} ещё не наступила — код проигнорирован`);
     return;
   }
@@ -2423,6 +2550,7 @@ function onScanDecoded(decodedText) {
   scanLocked = true;
   lastRejectText = "";
   playBeep(); // короткий сигнал об успешном сканировании (можно выключить кнопкой 🔊 рядом с фонариком)
+  setViewfinderOk(true); // рамка загорается зелёным и держится, пока не введено количество
   showQuickEntry(p);
 }
 
@@ -2466,6 +2594,7 @@ function confirmQuickEntry() {
 function closeQuickEntry() {
   resetScanPanels();
   scanLocked = false;
+  setViewfinderOk(false); // и после "Добавить", и после "Отменить" — рамка гасится, готова к следующему скану
 }
 
 // Во время сканирования список внизу по умолчанию показывает только
