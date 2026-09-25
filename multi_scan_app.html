@@ -656,6 +656,23 @@
       </div>
     </div>
 
+    <!-- ВКЛАДКА: ПРОВЕРКА — доступна ВСЕМ ролям (в отличие от «Операций»,
+         это чистый информационный просмотр: посмотреть, что за товар и от
+         какого числа, без оприходования/отгрузки и без учёта количества.
+         Отдельно от Операций специально, чтобы не путать со складским
+         движением товара. -->
+    <div id="tab-verify" class="hidden">
+      <div class="card">
+        <div style="font-weight:700; font-size:14.5px; margin-bottom:4px;">🔍 Проверка кода</div>
+        <div class="muted" style="margin-bottom:12px;">Отсканируйте или введите код с этикетки, чтобы просто посмотреть, какой это товар и когда произведён — сюда ничего не приходуется и не отгружается, это только просмотр.</div>
+        <button class="btn" id="verifyScanBtn">📷 Сканировать для проверки</button>
+        <label class="lbl">Или введите код вручную</label>
+        <input type="text" id="verifyCodeInput" placeholder="например 226-25.09.2026" autocomplete="off" />
+        <button class="btn secondary" id="verifyCheckBtn">Проверить</button>
+        <div id="verifyResult" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
     <!-- ВКЛАДКА: ВХОДЯЩИЕ -->
     <div id="tab-pending" class="hidden">
       <div class="card">
@@ -804,6 +821,7 @@
   <!-- НИЖНЯЯ НАВИГАЦИЯ -->
   <div class="bottom-nav">
     <button class="tab-btn active" data-tab="ops"><span class="ic">🧾</span>Операции</button>
+    <button class="tab-btn" data-tab="verify"><span class="ic">🔍</span>Проверка</button>
     <button class="tab-btn" data-tab="pending"><span class="ic">📥</span>Входящие <span class="badge" id="pendingBadge">0</span></button>
     <button class="tab-btn" data-tab="sent"><span class="ic">📤</span>Отправленные <span class="badge hidden" id="sentBadge">0</span></button>
     <button class="tab-btn" data-tab="stock"><span class="ic">📦</span>Остатки</button>
@@ -875,6 +893,14 @@
 let SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_3qR3aWPVzO4tDBywRZ3c2O5E2CREV9wagOPBm_mo0HM4vfV65Sf-Ecp4aLLIglZJ2A/exec";
 let ME = null; // { login, role, warehouse }
 let currentMode = "";
+// Вкладка «Проверка» открывает тот же полноэкранный сканер, что и
+// «Операции», но НИЧЕГО не приходует/отгружает — это просто способ узнать,
+// какой это товар и когда произведён. verifyOnlyMode переключает поведение
+// openScanner()/onScanDecoded() в этот "только посмотреть" режим (см. там же)
+// и сбрасывается в false при закрытии сканера (closeScanner), чтобы не
+// протечь в обычное сканирование при следующем открытии из «Операций».
+let verifyOnlyMode = false;
+let verifyScanCount = 0;
 let cart = [];
 let html5QrCode = null;
 let warehousesList = [];
@@ -1068,6 +1094,15 @@ const LABEL_RE = /^(.+)-(\d{2})\.(\d{2})\.(\d{4})(?:-(.*))?$/;
 // оператор/упаковщик/оборудование/название) на этикетке менялись уже
 // несколько раз и могут поменяться снова.
 const DATE_ANYWHERE_RE = /(\d{2})\.(\d{2})\.(\d{4})/;
+// Явная метка кода СКЮ вида "SKU: 226" / "СКЮ: 226" / "Код: 226" — этикетка
+// теперь иногда собирается как "Пр: 50 См: 1 SKU: 226 Дата: 25.09.2026 Оп: 5
+// Уп: 2 Об: 1" (подписанные поля через пробел, а не через дефис). Если такая
+// метка есть — значение сразу после неё берётся как код с НАИВЫСШИМ
+// приоритетом и никогда не подменяется случайным совпадением другого поля
+// (протокол/смена/оператор и т.п. тоже бывают маленькими числами, которые
+// могут случайно совпасть с каким-то реальным кодом СКЮ — например "Оп: 5"
+// совпадёт с реальным кодом "5", если не отдавать явной метке приоритет).
+const SKU_LABEL_RE = /(?:^|[\s\-:])(?:SKU|СКЮ|КОД)\s*[:\-]?\s*([^\s\-:]+)/i;
 const SCAN_HINT_DEFAULT = "Наведите камеру на штрих-код этикетки";
 function isKnownSkuCode(code) {
   if (!skuCodesSet || skuCodesSet.size === 0) return true; // справочник ещё не загрузился — не блокируем сканирование
@@ -1250,7 +1285,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    ["ops","pending","sent","stock","history","admin"].forEach(t => {
+    ["ops","verify","pending","sent","stock","history","admin"].forEach(t => {
       const el = document.getElementById("tab-" + t);
       if (t === btn.dataset.tab) el.classList.remove("hidden"); else el.classList.add("hidden");
     });
@@ -1451,41 +1486,60 @@ function getTo() {
 }
 
 // ---------- разбор кода этикетки ----------
-// Раньше требовался жёсткий шаблон "КОД-ДД.ММ.ГГГГ[-хвост]" — но состав и
-// порядок полей на этикетке (протокол/смена/оператор/упаковщик/
-// оборудование/название) меняется от версии к версии, и КОД не всегда
-// оказывается первым куском перед датой. Теперь логика такая:
+// Формат этикетки менялся уже много раз (дефисы, подписанные поля через
+// пробел "Пр: 50 См: 1 SKU: 226 ..." и т.д.), поэтому логика разбора не
+// привязана к конкретному виду строки. Порядок действий:
 //   1) дата ищется где угодно в отсканированном тексте (DATE_ANYWHERE_RE) —
 //      неважно, что стоит до/после неё;
-//   2) остаток текста (без самой даты) режется по дефисам на кусочки, и
-//      среди ВСЕХ подряд идущих склеек этих кусочков ищется та, что
-//      целиком совпадает с реальным кодом СКЮ из справочника (загружается
-//      с сервера) — так код находится независимо от того, где он стоит и
-//      что написано рядом (название, протокол, смена и т.п.);
+//   2) код СКЮ ищется в остатке текста (без самой даты) в три попытки, по
+//      убыванию надёжности (см. findSkuCandidate ниже):
+//        a) явная метка "SKU:"/"СКЮ:"/"Код:" — если она есть, её значение
+//           используется как код ВСЕГДА, даже если он не найден в
+//           справочнике (тогда просто честно скажем "код не найден" с
+//           этим самым значением, а не тихо подставим соседнее поле);
+//        b) старый формат "КОД-ДД.ММ.ГГГГ[-хвост]" — все подряд идущие
+//           склейки дефис-кусочков сверяются со справочником;
+//        c) общий запасной вариант — любой отдельный кусок текста (по
+//           пробелу/дефису/двоеточию), совпадающий с реальным кодом.
 //   3) если справочник СКЮ ещё не загрузился — не блокируем (как и раньше).
 // Возвращает { ok:true, lot, isoDate, displayDate } при успехе, либо
 // { ok:false, reason } при отказе — reason:"format" (в тексте вообще нет
 // похожей на дату подстроки), reason:"bad_date" (дата похожа по форме, но
 // такого дня в календаре не существует — например месяц 13 или 30 февраля)
-// или reason:"unknown_sku" (дата верная, но нигде в тексте не нашёлся кусок,
-// совпадающий с кодом из справочника СКЮ) — так вызывающий код может
-// показать разное сообщение вместо того, чтобы тихо игнорировать
-// посторонний штрих-код.
-function findKnownSkuPiece(pieces) {
-  // Ищем среди ВСЕХ подряд идущих склеек кусочков (через дефис обратно) ту,
-  // что совпадает с реальным кодом СКЮ — берём самую длинную из найденных,
-  // чтобы код вида "AB-100" (с дефисом внутри самого кода) тоже находился,
-  // а не только его первая половина "AB".
+// или reason:"unknown_sku" (дата верная, но код не из справочника СКЮ) —
+// так вызывающий код может показать разное сообщение вместо того, чтобы
+// тихо игнорировать посторонний штрих-код.
+function findSkuCandidate(text) {
+  // a) явная метка — самый надёжный источник: если она есть, ДОВЕРЯЕМ ей
+  // полностью и не откатываемся на другие числовые поля (протокол/смена/
+  // оператор и т.п. тоже бывают маленькими числами, которые могут случайно
+  // совпасть с каким-то реальным кодом СКЮ — например "Оп: 5" совпадёт с
+  // реальным кодом "5", если не отдать явной метке приоритет).
+  const labelMatch = text.match(SKU_LABEL_RE);
+  if (labelMatch) return { code: labelMatch[1].trim(), source: "label" };
+
+  // b) старый дефисный формат — код может содержать дефис внутри себя
+  // (например "AB-100"), поэтому проверяются все подряд идущие склейки
+  // кусочков, разбитых по дефису; берём самую длинную найденную склейку.
+  const dashPieces = text.split("-").map(s => s.trim()).filter(Boolean);
   let best = null;
-  for (let i = 0; i < pieces.length; i++) {
-    for (let j = i; j < pieces.length; j++) {
-      const candidate = pieces.slice(i, j + 1).join("-").trim();
+  for (let i = 0; i < dashPieces.length; i++) {
+    for (let j = i; j < dashPieces.length; j++) {
+      const candidate = dashPieces.slice(i, j + 1).join("-").trim();
       if (candidate && isKnownSkuCode(candidate)) {
         if (best === null || candidate.length > best.length) best = candidate;
       }
     }
   }
-  return best;
+  if (best !== null) return { code: best, source: "dash" };
+
+  // c) общий запасной вариант — любой отдельный кусок (по пробелу/дефису/
+  // двоеточию), совпадающий с реальным кодом; берём первый (самый левый).
+  const tokens = text.split(/[\s\-:]+/).map(s => s.trim()).filter(Boolean);
+  for (const tok of tokens) {
+    if (isKnownSkuCode(tok)) return { code: tok, source: "token" };
+  }
+  return null;
 }
 function parseCode(text) {
   const clean = text.replace(/\*/g, "").trim();
@@ -1495,12 +1549,17 @@ function parseCode(text) {
   const [dateToken, dd, mm, yyyy] = dm;
   if (!isValidCalendarDate(dd, mm, yyyy)) return { ok: false, reason: "bad_date", badDate: `${dd}.${mm}.${yyyy}` };
 
-  const pieces = clean.replace(dateToken, "").split("-").map(s => s.trim()).filter(Boolean);
-  const found = findKnownSkuPiece(pieces);
-  if (found === null) {
-    return { ok: false, reason: "unknown_sku", lot: pieces.join(" / ") || clean };
+  // dateToken заменяется пробелом (не пустой строкой) — иначе соседние
+  // куски текста могли бы случайно слипнуться в один без разделителя.
+  const rest = clean.replace(dateToken, " ").replace(/^[\s\-:]+|[\s\-:]+$/g, "").trim();
+  const candidate = findSkuCandidate(rest);
+  if (candidate === null) {
+    return { ok: false, reason: "unknown_sku", lot: rest || clean };
   }
-  return { ok: true, lot: found, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
+  if (!isKnownSkuCode(candidate.code)) {
+    return { ok: false, reason: "unknown_sku", lot: candidate.code };
+  }
+  return { ok: true, lot: candidate.code, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
 }
 // Партия с датой производства "в будущем" (относительно фактической даты
 // сканирования) физически невозможна — это либо ошибка сканирования, либо
@@ -1891,7 +1950,47 @@ document.getElementById("scanBtn").onclick = () => {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === "suspended") audioCtx.resume();
   } catch (e) {}
+  verifyOnlyMode = false;
   openScanner();
+};
+// ---------- вкладка «Проверка» — только посмотреть, без учёта ----------
+document.getElementById("verifyScanBtn").onclick = () => {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) {}
+  verifyOnlyMode = true;
+  openScanner();
+};
+function getSkuName(code) {
+  const hit = skuList.find(s => String(s.code).trim().toLowerCase() === String(code).trim().toLowerCase());
+  return hit ? hit.name : "";
+}
+// Общий рендер результата проверки — используется и для ручного ввода на
+// вкладке «Проверка», и для карточки после сканирования там же (см.
+// onScanDecoded). Никогда не трогает cart — это чисто информационный вывод.
+function renderVerifyResultHtml(p) {
+  if (!p.ok) {
+    const msg = p.reason === "unknown_sku"
+      ? `Код «${escapeHtml(p.lot)}» не найден в справочнике СКЮ.`
+      : p.reason === "bad_date"
+      ? `Дата «${escapeHtml(p.badDate)}» не существует в календаре.`
+      : `Это не похоже на нашу этикетку (не тот формат).`;
+    return `<div class="err">✕ ${msg}</div>`;
+  }
+  if (isFutureProdDate(p.isoDate)) {
+    return `<div class="err">✕ Дата производства ${p.displayDate} ещё не наступила — такая партия не могла существовать.</div>`;
+  }
+  const name = getSkuName(p.lot);
+  const days = Math.round((Date.now() - new Date(p.isoDate + "T00:00:00").getTime()) / 86400000);
+  const daysTxt = days === 0 ? "сегодня" : days === 1 ? "1 день назад" : `${days} дн. назад`;
+  return `<div class="ok">✓ Код <b>${escapeHtml(p.lot)}</b>${name ? " — " + escapeHtml(name) : ""}<br>Дата производства: ${p.displayDate} (${daysTxt})</div>`;
+}
+document.getElementById("verifyCheckBtn").onclick = () => {
+  const val = document.getElementById("verifyCodeInput").value;
+  const box = document.getElementById("verifyResult");
+  if (!val.trim()) { box.innerHTML = ""; return; }
+  box.innerHTML = renderVerifyResultHtml(parseCode(val));
 };
 document.getElementById("scanCloseBtn").onclick = closeScanner;
 document.getElementById("scanDoneBtn").onclick = closeScanner;
@@ -1995,12 +2094,26 @@ function warmupAudioContext() {
 function openScanner() {
   const overlay = document.getElementById("scanOverlay");
   overlay.classList.remove("hidden");
-  applyModeColor(currentMode);
   pinScanOverlayToViewport();
   warmupAudioContext();
-  document.getElementById("scanModeLabel").textContent =
-    { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Сканирования" }[currentMode] || "";
-  document.getElementById("scanCounter").textContent = cart.length;
+  if (verifyOnlyMode) {
+    // «Проверка» — серый нейтральный цвет (не путать с цветом текущего
+    // режима Операций, который остаётся как был выбран там же) и отдельная
+    // подпись; список "последних сканов" (это данные из cart Операций) и
+    // счётчик cart.length здесь неприменимы — показываем свой счётчик.
+    document.body.style.setProperty("--mode-color", "#6b7280");
+    document.getElementById("scanModeLabel").textContent = "Проверка — без учёта";
+    verifyScanCount = 0;
+    document.getElementById("scanCounter").textContent = verifyScanCount;
+    document.getElementById("scanLast3").classList.add("hidden");
+  } else {
+    applyModeColor(currentMode);
+    document.getElementById("scanModeLabel").textContent =
+      { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Сканирования" }[currentMode] || "";
+    document.getElementById("scanCounter").textContent = cart.length;
+    document.getElementById("scanLast3").classList.remove("hidden");
+    renderLast3();
+  }
   scanLocked = false;
   scanListExpanded = false;
   setViewfinderOk(false); // на случай, если сканер открыли повторно, пока рамка ещё была зелёной/красной
@@ -2008,7 +2121,6 @@ function openScanner() {
   hintEl.textContent = SCAN_HINT_DEFAULT;
   hintEl.classList.remove("warn-flash");
   resetScanPanels();
-  renderLast3();
 
   html5QrCode = new Html5Qrcode("reader");
   // Настройки подобраны для максимальной скорости распознавания и для мелких
@@ -2547,10 +2659,25 @@ function onScanDecoded(decodedText) {
     return;
   }
 
-  scanLocked = true;
   lastRejectText = "";
   playBeep(); // короткий сигнал об успешном сканировании (можно выключить кнопкой 🔊 рядом с фонариком)
-  setViewfinderOk(true); // рамка загорается зелёным и держится, пока не введено количество
+  setViewfinderOk(true); // рамка загорается зелёным и держится, пока не закрыта карточка
+
+  if (verifyOnlyMode) {
+    // «Проверка» — просто показываем инфо-карточку (код/название/дата),
+    // без cart и без ввода количества; закрывается тем же "Понятно,
+    // сканировать дальше" (см. document.getElementById("scanCheckOkBtn")).
+    verifyScanCount++;
+    document.getElementById("scanCounter").textContent = verifyScanCount;
+    scanLocked = true;
+    resetScanPanels();
+    document.getElementById("scanHintText").classList.add("hidden");
+    document.getElementById("scanCheckMsg").innerHTML = renderVerifyResultHtml(p);
+    document.getElementById("scanCheckResult").classList.remove("hidden");
+    return;
+  }
+
+  scanLocked = true;
   showQuickEntry(p);
 }
 
@@ -2682,11 +2809,15 @@ function closeScanner() {
   if (scanViewportCleanup) { try { scanViewportCleanup(); } catch (e) {} scanViewportCleanup = null; }
   document.getElementById("scanOverlay").classList.add("hidden");
   scanLocked = false;
+  const wasVerifyOnly = verifyOnlyMode;
+  verifyOnlyMode = false; // сбрасываем сразу, чтобы не "протекло" в следующее открытие сканера из «Операций»
   // После закрытия сканера показываем список отсканированного ("Текущий
   // документ") под кнопкой «Сканировать» на основном экране — прокручиваем
   // к нему и на секунду подсвечиваем, чтобы было видно, что список появился
-  // не только внутри окна сканирования, но и здесь.
-  if (cart.length) {
+  // не только внутри окна сканирования, но и здесь. Не делаем этого после
+  // «Проверки» — тот cart принадлежит незакрытой сессии Операций и никак не
+  // связан с тем, что человек только что смотрел на вкладке «Проверка».
+  if (!wasVerifyOnly && cart.length) {
     const card = document.getElementById("cartCard");
     setTimeout(() => {
       card.scrollIntoView({ behavior: "smooth", block: "center" });
