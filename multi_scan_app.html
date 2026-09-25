@@ -100,22 +100,44 @@
   }
   .remember-row input { width:auto; margin:0; accent-color:var(--red); }
   .btn {
-    width:100%; padding:13px; border-radius:var(--radius-sm); border:none; background:var(--red);
+    width:100%; padding:13px; border-radius:var(--radius-sm); border:none;
+    background:linear-gradient(135deg, var(--red) 0%, var(--red-dark) 100%);
     color:#fff; font-size:14.5px; font-weight:600; cursor:pointer; margin-top:10px;
-    transition: transform .05s ease, background .15s ease;
+    box-shadow: 0 2px 6px rgba(161,13,36,.22);
+    transition: transform .05s ease, box-shadow .15s ease, filter .15s ease;
   }
   .btn:active { transform: scale(0.98); }
-  .btn:hover { background:var(--red-dark); }
-  .btn.secondary { background:#6b7280; }
-  .btn.ghost { background:transparent; color:var(--red); border:1px solid var(--red); }
+  .btn:hover { filter:brightness(1.05); box-shadow: 0 3px 9px rgba(161,13,36,.3); }
+  .btn.secondary { background:#6b7280; box-shadow:none; }
+  .btn.ghost { background:transparent; color:var(--red); border:1px solid var(--red); box-shadow:none; }
   .btn.small { width:auto; padding:8px 14px; font-size:12.5px; margin:0; }
   .btn.tiny { width:auto; padding:6px 10px; font-size:11.5px; margin:0; border-radius:8px; }
-  .btn:disabled { background:#d8dde6; color:#8b95a5; cursor:not-allowed; }
+  .btn:disabled { background:#d8dde6; color:#8b95a5; cursor:not-allowed; box-shadow:none; }
   /* "Мягкое" отключение — визуально как :disabled, но БЕЗ атрибута disabled,
      то есть кнопка всё ещё принимает нажатия. Нужно для commitBtn: тапнув по
      ней при незаполненных полях, пользователь должен увидеть объяснение
      (всплывающее уведомление), а не просто "мёртвую" кнопку без реакции. */
-  .btn.soft-disabled { background:#d8dde6; color:#8b95a5; }
+  .btn.soft-disabled { background:#d8dde6; color:#8b95a5; box-shadow:none; }
+  /* Кнопка "Сканировать" — по просьбе пользователя выделена среди остальных
+     (в целом одинаковых) кнопок так, чтобы сразу было понятно: это основное
+     действие на экране операций. Крупнее, с более заметной тенью-свечением
+     (мягко "дышит" через анимацию) и увеличенной иконкой камеры. Цвета —
+     те же бренд-токены (--red/--red-dark), система остальных кнопок не
+     трогается. */
+  #scanBtn {
+    padding:16px; font-size:16px; font-weight:700; letter-spacing:.2px;
+    border-radius:14px;
+    box-shadow: 0 4px 14px rgba(161,13,36,.38);
+    animation: scanBtnGlow 2.6s ease-in-out infinite;
+  }
+  #scanBtn .scan-btn-ic { font-size:19px; vertical-align:-2px; margin-right:2px; }
+  @keyframes scanBtnGlow {
+    0%, 100% { box-shadow: 0 4px 14px rgba(161,13,36,.38), 0 0 0 0 rgba(200,16,46,.35); }
+    50% { box-shadow: 0 4px 14px rgba(161,13,36,.38), 0 0 0 7px rgba(200,16,46,0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #scanBtn { animation:none; }
+  }
   .login-footer { text-align:center; margin-top:16px; font-size:11px; color:#b0a8a6; }
 
   /* ---------- ОБЩИЕ ЭЛЕМЕНТЫ ---------- */
@@ -162,8 +184,8 @@
   .app-content { order:2; flex:1; width:100%; max-width:640px; margin:0 auto; padding:14px; }
 
   .modes { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
-  .mode-btn { flex:1 1 110px; padding:10px 6px; border-radius:var(--radius-sm); border:2px solid var(--border); background:#f7f7f7; font-size:12px; font-weight:700; cursor:pointer; color:#333; }
-  .mode-btn.active { border-color:var(--mode-color, var(--red)); background:var(--mode-color, var(--red)); color:#fff; }
+  .mode-btn { flex:1 1 110px; padding:10px 6px; border-radius:var(--radius-sm); border:2px solid var(--border); background:#f7f7f7; font-size:12px; font-weight:700; cursor:pointer; color:#333; transition: box-shadow .15s ease; }
+  .mode-btn.active { border-color:var(--mode-color, var(--red)); background:var(--mode-color, var(--red)); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.18); }
   #modeHint { margin-bottom:10px; }
 
   #reader { width:100%; border-radius:8px; overflow:hidden; margin-top:8px; }
@@ -200,7 +222,13 @@
      родную рамку библиотеки: на распознавание это не влияет, это чисто декоративный слой. */
   .scan-video-wrap #reader > div { display: none !important; }
   .viewfinder {
-    position:absolute; top:42%; left:50%; width:82%; max-width:360px; height:150px;
+    /* Квадратная рамка — QR-код квадратный (в отличие от старого широкого
+       CODE_128), и сканирование (см. computeViewfinderCropRect / qrbox ниже)
+       обрезает кадр камеры РОВНО по этой рамке — то, что снаружи, физически
+       не попадает в кадр для распознавания, поэтому соседний код на этикетке
+       не подхватывается случайно. aspect-ratio держит рамку квадратной на
+       любом экране, а не только при этой конкретной ширине. */
+    position:absolute; top:42%; left:50%; width:72%; max-width:300px; aspect-ratio:1/1;
     transform:translate(-50%,-50%); box-shadow:0 0 0 2000px rgba(0,0,0,.5); border-radius:18px; pointer-events:none;
   }
   .corner { position:absolute; width:26px; height:26px; border:3px solid #fff; }
@@ -385,7 +413,7 @@
       width:400px; max-width:400px; height:100%; flex:0 0 400px; flex-shrink:0;
       border-radius:0; box-shadow:-6px 0 18px rgba(0,0,0,.10); overflow-y:auto;
     }
-    .viewfinder { top:50%; left:50%; width:56%; max-width:440px; height:170px; }
+    .viewfinder { top:50%; left:50%; width:40%; max-width:340px; aspect-ratio:1/1; }
   }
   /* ---------- плавающее уведомление (тост) ---------- */
   .floating-toast {
@@ -469,7 +497,7 @@
           </div>
         </div>
 
-        <button class="btn" id="scanBtn">📷 Сканировать штрих-код</button>
+        <button class="btn" id="scanBtn"><span class="scan-btn-ic">📷</span> Сканировать штрих-код</button>
         <div class="hint">Открывает камеру во весь экран для чтения штрих-кода этикетки. Можно отсканировать сразу несколько партий подряд.</div>
 
         <button type="button" class="btn secondary small" id="toggleManualBtn" style="margin-top:10px; width:100%;">✍️ Ввести код вручную</button>
@@ -1838,7 +1866,9 @@ function openScanner() {
     { facingMode: "environment" },
     {
       fps: 20,
-      qrbox: { width: 340, height: 160 },
+      // Квадрат — под QR-код (см. .viewfinder в CSS); раньше здесь был широкий
+      // прямоугольник под старый CODE_128.
+      qrbox: { width: 280, height: 280 },
       disableFlip: true,
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       // Раньше распознавали и CODE_39, и CODE_128 — теперь на складах печатают
@@ -2038,9 +2068,23 @@ function setupFocusMode() {
       // чего картинка "застывает" размытой, если расстояние до этикетки
       // изменилось. Периодически подталкиваем его перефокусироваться —
       // грубее, чем continuous, но лучше застывшего размытого кадра.
-      const refocus = () => track.applyConstraints({ advanced: [{ focusMode: "single-shot" }] }).catch(() => {});
+      //
+      // ИСПРАВЛЕНИЕ "камера иногда затемняется": раньше повторный вызов
+      // applyConstraints передавал ТОЛЬКО focusMode, отдельно от
+      // exposureMode/whiteBalanceMode — на многих Android-камерах это
+      // сбрасывает уже включённую continuous-экспозицию обратно на "авто",
+      // и камера на секунду заново "переосмысливает" яркость (видно как
+      // лёгкое затемнение/просветление). Теперь передаём все три режима
+      // ОДНИМ вызовом, чтобы экспозиция не сбрасывалась при перефокусировке,
+      // и делаем это немного реже, чтобы эффект был менее заметен.
+      const refocus = () => {
+        const adv = { focusMode: "single-shot" };
+        if (caps.exposureMode && caps.exposureMode.includes("continuous")) adv.exposureMode = "continuous";
+        if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes("continuous")) adv.whiteBalanceMode = "continuous";
+        track.applyConstraints({ advanced: [adv] }).catch(() => {});
+      };
       refocus();
-      focusRetryTimer = setInterval(refocus, 1500);
+      focusRetryTimer = setInterval(refocus, 2200);
       showFocusHint();
     } else {
       // Камера вообще не сообщает поддержку ни continuous, ни single-shot —
@@ -2078,7 +2122,13 @@ function setupTapToFocus() {
       if (!track || !track.getCapabilities) return;
       const caps = track.getCapabilities();
       if (caps.focusMode && caps.focusMode.includes("single-shot")) {
-        track.applyConstraints({ advanced: [{ focusMode: "single-shot" }] }).catch(() => {});
+        // Как и в setupFocusMode() — экспозицию/баланс белого передаём в
+        // том же вызове, чтобы тап по видео не сбрасывал continuous-экспозицию
+        // (иначе ровно тут камера тоже могла на секунду затемниться).
+        const adv = { focusMode: "single-shot" };
+        if (caps.exposureMode && caps.exposureMode.includes("continuous")) adv.exposureMode = "continuous";
+        if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes("continuous")) adv.whiteBalanceMode = "continuous";
+        track.applyConstraints({ advanced: [adv] }).catch(() => {});
       } else if (caps.focusMode && caps.focusMode.includes("continuous")) {
         // Кратковременный переход в "manual" и обратно в "continuous" на
         // некоторых устройствах сбрасывает застывший автофокус.
