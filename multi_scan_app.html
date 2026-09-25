@@ -948,6 +948,22 @@ function isKnownSkuCode(code) {
   return skuCodesSet.has(String(code).trim().toLowerCase());
 }
 
+// LABEL_RE проверяет только "форму" даты (2 цифры.2 цифры.4 цифры) — этого
+// достаточно, чтобы отбросить явно битую форму (например, 5-значный год —
+// такая строка вообще не совпадёт с регуляркой). Но она НЕ проверяет, что
+// дата реально существует в календаре: "35.13.2026" по форме подходит, хотя
+// такого дня и месяца не существует. isValidCalendarDate добивает эту
+// проверку: собирает настоящую JS-дату и сверяет, что день/месяц/год не
+// "переехали" (JS Date тихо нормализует некорректные даты, а не выдаёт
+// ошибку, поэтому сравниваем результат с тем, что запрашивали).
+function isValidCalendarDate(dd, mm, yyyy) {
+  const d = parseInt(dd, 10), m = parseInt(mm, 10), y = parseInt(yyyy, 10);
+  if (m < 1 || m > 12) return false;
+  if (y < 2000 || y > 2100) return false; // разумные границы для года производства
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+
 
 document.getElementById("togglePassBtn").onclick = () => {
   const input = document.getElementById("passInput");
@@ -1314,15 +1330,18 @@ function getTo() {
 // случайные штрих-коды) обеспечивает проверка по справочнику СКЮ ниже.
 // Возвращает { ok:true, lot, isoDate, displayDate } при успехе, либо
 // { ok:false, reason } при отказе — reason:"format" (не похоже на нашу
-// этикетку вообще) или reason:"unknown_sku" (формат верный, но код не из
-// справочника СКЮ) — так вызывающий код может показать разное сообщение
-// вместо того, чтобы тихо игнорировать посторонний штрих-код.
+// этикетку вообще), reason:"bad_date" (форма похожа на дату, но такого дня
+// в календаре не существует — например месяц 13 или 30 февраля) или
+// reason:"unknown_sku" (дата верная, но код не из справочника СКЮ) — так
+// вызывающий код может показать разное сообщение вместо того, чтобы тихо
+// игнорировать посторонний штрих-код.
 function parseCode(text) {
   const clean = text.replace(/\*/g, "").trim();
   const m = clean.match(LABEL_RE);
   if (!m) return { ok: false, reason: "format" };
   const [, lotRaw, dd, mm, yyyy] = m;
   const lot = lotRaw.trim();
+  if (!isValidCalendarDate(dd, mm, yyyy)) return { ok: false, reason: "bad_date", badDate: `${dd}.${mm}.${yyyy}` };
   if (!isKnownSkuCode(lot)) return { ok: false, reason: "unknown_sku", lot };
   return { ok: true, lot, isoDate: `${yyyy}-${mm}-${dd}`, displayDate: `${dd}.${mm}.${yyyy}` };
 }
@@ -1355,6 +1374,8 @@ document.getElementById("addBtn").onclick = async () => {
   if (!p.ok) {
     msg.innerHTML = p.reason === "unknown_sku"
       ? `<div class="err">Код «${p.lot}» не найден в справочнике СКЮ — проверьте этикетку или обратитесь к администратору, если это новая позиция.</div>`
+      : p.reason === "bad_date"
+      ? `<div class="err">Дата «${p.badDate}» не существует в календаре (проверьте день и месяц) — исправьте этикетку или ввод.</div>`
       : `<div class="err">Формат не распознан. Нужно: код СКЮ - дата производства, например 128-14.12.2026 или Кекс 4-14.12.2026 (код должен быть известным СКЮ)</div>`;
     return;
   }
@@ -2321,6 +2342,8 @@ function onScanDecoded(decodedText) {
     playRejectBeep();
     flashReject(p.reason === "unknown_sku"
       ? `✕ Код «${p.lot}» не найден в справочнике СКЮ — игнорируется`
+      : p.reason === "bad_date"
+      ? `✕ Дата «${p.badDate}» не существует в календаре — игнорируется`
       : `✕ Это не наша этикетка (не тот формат) — игнорируется`);
     return;
   }
