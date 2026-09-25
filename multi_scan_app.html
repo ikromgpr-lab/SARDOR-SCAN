@@ -277,10 +277,15 @@
        не попадает в кадр для распознавания, поэтому соседний код на этикетке
        не подхватывается случайно. aspect-ratio держит рамку квадратной на
        любом экране, а не только при этой конкретной ширине.
-       Три состояния (переключаются JS-классами vf-ok/vf-err, см.
-       setViewfinderOk()/flashViewfinderError()):
+       Четыре состояния (переключаются JS-классами vf-ok/vf-err/vf-detect, см.
+       setViewfinderOk()/flashViewfinderError()/setViewfinderDetect()):
          - обычное (ни один класс) — рамка "дышит" мягким белым пульсом,
            просто чтобы не выглядеть мёртвой в ожидании кадра;
+         - .vf-detect — камера "заметила" что-то похожее на код (резкие
+           чёрно-белые переходы в кадре), но он ещё не расшифрован — жёлтая
+           пульсация + один толчок автофокуса именно сейчас (см.
+           processDetectionFrame в JS); снимается, как только код либо
+           распознан (.vf-ok), либо пропал из кадра;
          - .vf-ok — код распознан и подходит: рамка загорается зелёным и
            ОСТАЁТСЯ зелёной, пока не введено количество (снимается в
            closeQuickEntry(), т.е. и после "Добавить", и после "Отменить");
@@ -306,6 +311,21 @@
     animation: vfErrShake .4s ease;
     box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 4px #e64b3c, 0 0 26px 5px rgba(230,75,60,.55);
   }
+  /* .vf-detect — "похоже на код, но ещё не распознан" (см. processDetectionFrame
+     в JS): лёгкая эвристика по резким чёрно-белым переходам в кадре пытается
+     заметить QR/штрих-код РАНЬШЕ, чем он реально расшифруется — как в
+     приложениях типа "Честный Знак" — и (а) подсвечивает рамку, чтобы
+     человек понимал "камера что-то видит, держите ровно", (б) один раз
+     "подталкивает" автофокус камеры именно сейчас, а не ждёт общий таймер.
+     Никогда не показывается одновременно с vf-ok/vf-err — см. setViewfinderDetect(). */
+  .viewfinder.vf-detect {
+    animation: vfDetectPulse 1s ease-in-out infinite;
+    box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 4px #f5a623, 0 0 22px 4px rgba(245,166,35,.5);
+  }
+  @keyframes vfDetectPulse {
+    0%, 100% { box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 4px #f5a623, 0 0 18px 3px rgba(245,166,35,.4); }
+    50%      { box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 5px #f5a623, 0 0 26px 6px rgba(245,166,35,.65); }
+  }
   @keyframes vfErrShake {
     0%, 100% { transform:translate(-50%,-50%); }
     25% { transform:translate(calc(-50% - 4px),-50%); }
@@ -318,6 +338,7 @@
   .corner.br { bottom:-4px; right:-4px; border-left:none; border-top:none; border-bottom-right-radius:16px; }
   .viewfinder.vf-ok .corner { border-color:#2ecc71; filter: drop-shadow(0 0 6px rgba(46,204,113,.8)); }
   .viewfinder.vf-err .corner { border-color:#e64b3c; filter: drop-shadow(0 0 6px rgba(230,75,60,.8)); }
+  .viewfinder.vf-detect .corner { border-color:#f5a623; filter: drop-shadow(0 0 6px rgba(245,166,35,.75)); }
   /* Небольшая подпись прямо на рамке — чтобы было понятно с первого взгляда,
      что означает цвет, а не только цветом (доступность + просто приятнее). */
   .vf-status-chip {
@@ -329,6 +350,8 @@
   .viewfinder.vf-ok .vf-status-chip::before { content:"✓ Распознано"; }
   .viewfinder.vf-err .vf-status-chip { opacity:1; background:#e64b3c; box-shadow:0 4px 12px rgba(230,75,60,.4); }
   .viewfinder.vf-err .vf-status-chip::before { content:"✕ Не подходит"; }
+  .viewfinder.vf-detect .vf-status-chip { opacity:1; background:#f5a623; box-shadow:0 4px 12px rgba(245,166,35,.4); }
+  .viewfinder.vf-detect .vf-status-chip::before { content:"🔎 Фокусируюсь…"; }
   .scan-topbar {
     position:absolute; top:0; left:0; right:0; z-index:2; display:flex; align-items:center; justify-content:space-between;
     padding: max(10px, env(safe-area-inset-top)) 12px 30px; background:linear-gradient(rgba(0,0,0,.6), transparent);
@@ -660,15 +683,14 @@
          это чистый информационный просмотр: посмотреть, что за товар и от
          какого числа, без оприходования/отгрузки и без учёта количества.
          Отдельно от Операций специально, чтобы не путать со складским
-         движением товара. -->
+         движением товара. Только сканирование — ручной ввод кода здесь
+         не нужен (это не приёмка/отгрузка, где код иногда не читается и
+         нужна подстраховка вводом вручную; здесь просто смотрим товар). -->
     <div id="tab-verify" class="hidden">
       <div class="card">
         <div style="font-weight:700; font-size:14.5px; margin-bottom:4px;">🔍 Проверка кода</div>
-        <div class="muted" style="margin-bottom:12px;">Отсканируйте или введите код с этикетки, чтобы просто посмотреть, какой это товар и когда произведён — сюда ничего не приходуется и не отгружается, это только просмотр.</div>
+        <div class="muted" style="margin-bottom:12px;">Отсканируйте код с этикетки, чтобы посмотреть подробно всё, что в нём зашито — сюда ничего не приходуется и не отгружается, это только просмотр.</div>
         <button class="btn" id="verifyScanBtn">📷 Сканировать для проверки</button>
-        <label class="lbl">Или введите код вручную</label>
-        <input type="text" id="verifyCodeInput" placeholder="например 226-25.09.2026" autocomplete="off" />
-        <button class="btn secondary" id="verifyCheckBtn">Проверить</button>
         <div id="verifyResult" style="margin-top:12px;"></div>
       </div>
     </div>
@@ -1298,11 +1320,20 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
 });
 
 // ---------- режимы операций (зависят от роли) ----------
+// ПРИМЕЧАНИЕ: режим "check" здесь — это скан-режим ВНУТРИ «Операций», для
+// ОТЧЁТА/ИНВЕНТАРИЗАЦИИ (список сканов проводится одним документом, попадает
+// в «Сводку»). Это НЕ то же самое, что отдельная вкладка «Проверка» в нижнем
+// меню (там — просто посмотреть один товар, без списка и без документа).
+// Раньше оба назывались похоже ("Сканирования" / "Проверка") и с одной
+// иконкой 🔍 на обоих — легко перепутать. Здесь режим переименован в
+// "Инвентаризация" со своей иконкой 📋, чтобы разница была видна сразу
+// (кроме роли Аудитор — у него уже было своё явное название "Аудит-сканирование",
+// его не трогаем).
 const MODE_HINTS = {
   in: "«Приход»: товар поступает и оприходуется на склад.",
   out_sgp: "«Отгрузка в регион»: товар уходит на выбранный региональный склад (появится во «Входящих» у получателя).",
   out_agent: "«Отгрузка агенту»: товар уходит конечному агенту/точке и списывается с остатков сразу.",
-  check: "«Сканирования»: просто сканируйте партии — они добавляются в список внизу (как в «Приходе»), позиции можно удалить по отдельности. «Провести» отправит весь список одним отчётом — он появится в «Сводке» у всех, а на остатки не влияет."
+  check: "«Инвентаризация»: сканируйте партии для отчёта — они добавляются в список внизу (как в «Приходе»), позиции можно удалить по отдельности. «Провести» отправит весь список одним отчётом — он появится в «Сводке» у всех, а на остатки не влияет. Если нужно просто посмотреть один товар без отчёта — используйте вкладку «Проверка» в нижнем меню."
 };
 
 // Цвет операции — чтобы приход/отгрузку/сканирование не путать между собой:
@@ -1312,14 +1343,14 @@ const MODE_COLORS = {
   in: "#1e8e3e",        // зелёный — приход
   out_sgp: "#c8102e",   // красный — отгрузка в регион
   out_agent: "#e07b00", // оранжевый — отгрузка агенту
-  check: "#6b7280"      // серый — быстрая проверка
+  check: "#6b7280"      // серый — инвентаризация/отчёт
 };
-const MODE_ICONS = { in: "📥", out_sgp: "🚚", out_agent: "📤", check: "🔍" };
+const MODE_ICONS = { in: "📥", out_sgp: "🚚", out_agent: "📤", check: "📋" };
 const MODE_BANNER_LABELS = {
   in: "ПРИХОД — товар поступает на склад",
   out_sgp: "ОТГРУЗКА В РЕГИОН — товар уходит на другой склад",
   out_agent: "ОТГРУЗКА АГЕНТУ — товар уходит конечному получателю",
-  check: "СКАНИРОВАНИЯ — сканируйте и отправьте список одним отчётом"
+  check: "ИНВЕНТАРИЗАЦИЯ — сканируйте для отчёта, на остатки не влияет"
 };
 function applyModeColor(mode) {
   const color = MODE_COLORS[mode] || "var(--red)";
@@ -1336,9 +1367,9 @@ function setupModes() {
   box.innerHTML = "";
   let modes;
   if (ME.role === "СГП") {
-    modes = [["in","Приход"], ["out_sgp","Отгрузка в регион"], ["check","Сканирования"]];
+    modes = [["in","Приход"], ["out_sgp","Отгрузка в регион"], ["check","Инвентаризация"]];
   } else if (ME.role === "Админ") {
-    modes = [["in","Приход"], ["out_sgp","Отгрузка СГП→регион"], ["out_agent","Отгрузка агенту"], ["check","Сканирования"]];
+    modes = [["in","Приход"], ["out_sgp","Отгрузка СГП→регион"], ["out_agent","Отгрузка агенту"], ["check","Инвентаризация"]];
   } else if (ME.role === "Аудитор") {
     // Аудитор: единственная задача — сканировать во время обхода склада и
     // зарегистрировать находки. Ни движений товара, ни доступа к другим
@@ -1350,7 +1381,7 @@ function setupModes() {
     // отправитель — СГП или другой склад — уже провёл отгрузку в их адрес).
     // Исключение — СГП и Админ (см. ветки выше): СГП оприходует сырьё из цехов,
     // это не внутрискладская передача и с «Входящими» никак не связано.
-    modes = [["out_agent","Отгрузка агенту"], ["check","Сканирования"]];
+    modes = [["out_agent","Отгрузка агенту"], ["check","Инвентаризация"]];
   }
   modes.forEach(([id, label], i) => {
     const b = document.createElement("button");
@@ -1966,32 +1997,106 @@ function getSkuName(code) {
   const hit = skuList.find(s => String(s.code).trim().toLowerCase() === String(code).trim().toLowerCase());
   return hit ? hit.name : "";
 }
-// Общий рендер результата проверки — используется и для ручного ввода на
-// вкладке «Проверка», и для карточки после сканирования там же (см.
-// onScanDecoded). Никогда не трогает cart — это чисто информационный вывод.
-function renderVerifyResultHtml(p) {
+// ---------- «Проверка»: полный разбор данных этикетки по строкам ----------
+// «Проверка» должна показывать НЕ только код+название+дату (как обычная
+// карточка после скана в Операциях), а вообще ВСЕ данные, которые были
+// зашиты в отсканированном штрих-коде/QR — построчно. Формат этикетки не
+// стабилен (см. комментарии у DATE_ANYWHERE_RE/SKU_LABEL_RE выше — поля
+// подписываются как "Пр: 50 См: 1 SKU: 226 Дата: 25.09.2026 Оп: 5 Уп: 2
+// Об: 1" и состав/порядок этих подписанных полей уже менялся несколько
+// раз), поэтому вместо жёсткого списка полей просто ВЫТАСКИВАЕМ ИЗ ТЕКСТА
+// все пары "подпись: значение", какие найдутся, и подписываем их человеку
+// понятными названиями там, где подпись известна (SKU/Дата/Пр/См/Оп/Уп/Об),
+// а неизвестные подписи показываем как есть — так ни один реальный кусок
+// этикетки не потеряется, даже если на ней снова поменяют состав полей.
+// Для старых этикеток без подписанных полей (просто "150-11.09.2026" или
+// "150-11.09.2026-хвост") показываем то, что осталось после кода и даты,
+// как отдельные пронумерованные строки — тоже ничего не отбрасываем.
+const FIELD_LABEL_NAMES = {
+  "sku": "Код товара (SKU)", "скю": "Код товара (СКЮ)", "код": "Код товара",
+  "дата": "Дата производства",
+  "пр": "Протокол", "прот": "Протокол",
+  "см": "Смена", "смена": "Смена",
+  "оп": "Оператор", "уп": "Упаковщик",
+  "об": "Оборудование", "обор": "Оборудование"
+};
+const GENERIC_FIELD_RE = /([A-Za-zА-Яа-яЁё]+)\s*:\s*([^\s:][^\s]*)/g;
+function extractLabeledFields(text) {
+  const fields = [];
+  const re = new RegExp(GENERIC_FIELD_RE.source, "g");
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const rawLabel = m[1].trim(), value = m[2].trim();
+    if (!value) continue;
+    const key = rawLabel.toLowerCase();
+    fields.push({ label: FIELD_LABEL_NAMES[key] || rawLabel, rawLabel: key, value });
+  }
+  return fields;
+}
+// Собирает построчный список "подпись — значение" для полного отображения
+// в «Проверке». Дата и код товара всегда идут первыми строками (они точно
+// известны из parseCode/p), остальное — что нашлось в самом тексте этикетки.
+function buildDetailedFields(rawText, p) {
+  const rows = [];
+  rows.push({ label: "Дата производства", value: p.displayDate });
+  rows.push({ label: "Код товара (SKU)", value: p.lot });
+  const name = getSkuName(p.lot);
+  if (name) rows.push({ label: "Наименование", value: name });
+
+  const dm = rawText.match(DATE_ANYWHERE_RE);
+  const dateToken = dm ? dm[0] : null;
+  const labeled = extractLabeledFields(rawText);
+  const skipKeys = ["sku", "скю", "код", "дата"]; // уже показаны выше отдельными строками
+  let usedLabeled = false;
+  labeled.forEach(f => {
+    if (skipKeys.includes(f.rawLabel)) return;
+    rows.push({ label: f.label, value: f.value });
+    usedLabeled = true;
+  });
+
+  if (!usedLabeled) {
+    // Старый формат без подписанных полей — показываем всё, что осталось в
+    // тексте после удаления даты и самого кода СКЮ, чтобы не потерять никакие
+    // дополнительные данные (например хвост-протокол у старых этикеток).
+    let rest = String(rawText).replace(/\*/g, "").trim();
+    if (dateToken) rest = rest.replace(dateToken, " ");
+    rest = rest.split("-").map(s => s.trim()).filter(Boolean)
+      .filter(piece => piece.toLowerCase() !== String(p.lot).toLowerCase())
+      .join("-");
+    const pieces = rest.split(/[\s\-:]+/).map(s => s.trim()).filter(Boolean);
+    pieces.forEach((piece, idx) => rows.push({ label: `Доп. поле ${idx + 1}`, value: piece }));
+  }
+  return rows;
+}
+function detailRowsToHtml(rows) {
+  return rows.map(r => `
+    <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:7px 0; border-bottom:1px solid rgba(0,0,0,.07);">
+      <span class="muted" style="font-size:12.5px; flex-shrink:0;">${escapeHtml(r.label)}</span>
+      <span style="font-weight:700; font-size:13.5px; text-align:right; word-break:break-all;">${escapeHtml(r.value)}</span>
+    </div>`).join("");
+}
+// Общий рендер результата проверки — используется для карточки после
+// сканирования на вкладке «Проверка» (см. onScanDecoded). rawText — реально
+// отсканированный (расшифрованный) текст этикетки, нужен, чтобы показать
+// ВСЕ его данные построчно, а не только код+дату. Никогда не трогает cart —
+// это чисто информационный вывод.
+function renderVerifyResultHtml(p, rawText) {
   if (!p.ok) {
     const msg = p.reason === "unknown_sku"
       ? `Код «${escapeHtml(p.lot)}» не найден в справочнике СКЮ.`
       : p.reason === "bad_date"
       ? `Дата «${escapeHtml(p.badDate)}» не существует в календаре.`
       : `Это не похоже на нашу этикетку (не тот формат).`;
-    return `<div class="err">✕ ${msg}</div>`;
+    const extra = rawText ? `<div class="muted" style="margin-top:6px; font-size:12px; word-break:break-all;">Считано с этикетки: ${escapeHtml(rawText)}</div>` : "";
+    return `<div class="err">✕ ${msg}</div>${extra}`;
   }
   if (isFutureProdDate(p.isoDate)) {
     return `<div class="err">✕ Дата производства ${p.displayDate} ещё не наступила — такая партия не могла существовать.</div>`;
   }
-  const name = getSkuName(p.lot);
-  const days = Math.round((Date.now() - new Date(p.isoDate + "T00:00:00").getTime()) / 86400000);
-  const daysTxt = days === 0 ? "сегодня" : days === 1 ? "1 день назад" : `${days} дн. назад`;
-  return `<div class="ok">✓ Код <b>${escapeHtml(p.lot)}</b>${name ? " — " + escapeHtml(name) : ""}<br>Дата производства: ${p.displayDate} (${daysTxt})</div>`;
+  const rows = buildDetailedFields(rawText || `${p.lot} ${p.displayDate}`, p);
+  return `<div class="ok" style="margin-bottom:6px;">✓ Код распознан — все данные этикетки:</div>
+    <div style="background:#fff; border-radius:12px; padding:2px 12px;">${detailRowsToHtml(rows)}</div>`;
 }
-document.getElementById("verifyCheckBtn").onclick = () => {
-  const val = document.getElementById("verifyCodeInput").value;
-  const box = document.getElementById("verifyResult");
-  if (!val.trim()) { box.innerHTML = ""; return; }
-  box.innerHTML = renderVerifyResultHtml(parseCode(val));
-};
 document.getElementById("scanCloseBtn").onclick = closeScanner;
 document.getElementById("scanDoneBtn").onclick = closeScanner;
 document.getElementById("scanSoundBtn").onclick = () => {
@@ -2097,19 +2202,24 @@ function openScanner() {
   pinScanOverlayToViewport();
   warmupAudioContext();
   if (verifyOnlyMode) {
-    // «Проверка» — серый нейтральный цвет (не путать с цветом текущего
-    // режима Операций, который остаётся как был выбран там же) и отдельная
-    // подпись; список "последних сканов" (это данные из cart Операций) и
-    // счётчик cart.length здесь неприменимы — показываем свой счётчик.
-    document.body.style.setProperty("--mode-color", "#6b7280");
+    // «Проверка» — свой отдельный цвет (сине-фиолетовый), НЕ серый — серый
+    // теперь занят режимом «Инвентаризация» в Операциях (см. MODE_COLORS.check
+    // ниже); если оба сделать серыми, их снова легко спутать между собой.
+    // Список "последних сканов" (это данные из cart Операций) и счётчик
+    // cart.length здесь неприменимы — показываем свой счётчик.
+    document.body.style.setProperty("--mode-color", "#6366f1");
     document.getElementById("scanModeLabel").textContent = "Проверка — без учёта";
     verifyScanCount = 0;
     document.getElementById("scanCounter").textContent = verifyScanCount;
     document.getElementById("scanLast3").classList.add("hidden");
   } else {
     applyModeColor(currentMode);
+    // Для Аудитора режим "check" уже подписан отдельно ("Аудит-сканирование" —
+    // см. setupModes()), остальным ролям — "Инвентаризация" (отчёт/учёт
+    // остатков сканированием, НЕ то же самое, что вкладка «Проверка»).
+    const checkLabel = ME.role === "Аудитор" ? "Аудит-сканирование" : "Инвентаризация";
     document.getElementById("scanModeLabel").textContent =
-      { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: "Сканирования" }[currentMode] || "";
+      { in: "Приход", out_sgp: "Отгрузка в регион", out_agent: "Отгрузка агенту", check: checkLabel }[currentMode] || "";
     document.getElementById("scanCounter").textContent = cart.length;
     document.getElementById("scanLast3").classList.remove("hidden");
     renderLast3();
@@ -2186,6 +2296,13 @@ function openScanner() {
     const usingNative = await startNativeScanLoop();
     if (usingNative) {
       try { html5QrCode.pause(false); } catch (e) { /* pause недоступен в этой версии библиотеки — не критично, просто не экономим CPU */ }
+    } else {
+      // Нативного BarcodeDetector нет — свой цикл под рамку не запускается
+      // (startNativeScanLoop уже сам анализирует кадры на "похоже на код",
+      // см. processDetectionFrame в его loop()). Здесь запускаем отдельный
+      // облегчённый цикл специально для этой эвристики, раз своего цикла
+      // обрезки кадров под рамку в этом случае нет.
+      startDetectionAssistLoop();
     }
   }).catch(err => {
     document.getElementById("scanHintText").textContent = "Камера недоступна: " + err;
@@ -2263,6 +2380,7 @@ async function startNativeScanLoop() {
   nativeScanCtx = nativeScanCanvas.getContext("2d", { willReadFrequently: true });
   nativeScanActive = true;
   let busy = false;
+  let detectFrameCounter = 0;
   const loop = async () => {
     if (!nativeScanActive) return; // сканер закрыт — цикл остановлен
     if (!scanLocked && !busy) {
@@ -2276,6 +2394,11 @@ async function startNativeScanLoop() {
             if (nativeScanCanvas.width !== cw) nativeScanCanvas.width = cw;
             if (nativeScanCanvas.height !== ch) nativeScanCanvas.height = ch;
             nativeScanCtx.drawImage(videoEl, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, cw, ch);
+            // Эвристика "похоже на код" (см. processDetectionFrame) — раз в
+            // 2 кадра достаточно для устойчивой подсветки/толчка фокуса и
+            // чуть меньше нагружает процессор рядом с самим детектором.
+            detectFrameCounter++;
+            if (detectFrameCounter % 2 === 0) processDetectionFrame(nativeScanCanvas);
             const codes = await nativeDetector.detect(nativeScanCanvas);
             if (codes && codes.length && nativeScanActive) onScanDecoded(codes[0].rawValue);
           }
@@ -2294,6 +2417,7 @@ function stopNativeScanLoop() {
   nativeDetector = null;
   if (nativeScanRAFId) { cancelAnimationFrame(nativeScanRAFId); nativeScanRAFId = null; }
   nativeScanCanvas = null; nativeScanCtx = null;
+  resetDetectionState();
 }
 
 function setupTorchButton() {
@@ -2594,6 +2718,7 @@ function setViewfinderOk(on) {
   clearTimeout(vfErrTimer);
   vf.classList.remove("vf-err");
   vf.classList.toggle("vf-ok", on);
+  resetDetectionState(); // настоящий результат важнее "похоже на код" — гасим жёлтую подсветку
 }
 function flashViewfinderError() {
   const vf = document.getElementById("viewfinder");
@@ -2605,6 +2730,165 @@ function flashViewfinderError() {
   requestAnimationFrame(() => vf.classList.add("vf-err"));
   clearTimeout(vfErrTimer);
   vfErrTimer = setTimeout(() => vf.classList.remove("vf-err"), 750);
+  resetDetectionState();
+}
+
+// ---------- эвристика "похоже на код" — помощь автофокусу ----------
+// Идея — как в приложениях типа "Честный Знак": подсказать камере, что
+// именно сейчас в кадре появилось что-то похожее на QR/штрих-код, ЕЩЁ ДО
+// того, как он реально расшифровался, и (а) показать это человеку жёлтой
+// рамкой, (б) один раз "подтолкнуть" автофокус камеры сфокусироваться
+// именно на этом. Полноценного распознавания контуров кода (как в
+// нативных SDK — ML Kit и т.п.) в браузере нет, а вот дёшево посчитать
+// "сколько тут резких чёрно-белых переходов" — можно: у штрих-кода/QR их
+// на порядок больше, чем у ровного фона, руки, стола, одежды и т.п. Это
+// не замена настоящему распознаванию (parseCode/onScanDecoded), а только
+// подсказка автофокусу и человеку "держите камеру так, я что-то вижу" —
+// на итоговый результат сканирования эвристика никак не влияет.
+let detectAnalysisCanvas = null, detectAnalysisCtx = null;
+let detectOnStreak = 0, detectOffStreak = 0, detectActive = false;
+let lastFocusNudgeAt = 0;
+const DETECT_GRID = 28;              // сторона квадрата анализа — маленькая ради скорости
+const DETECT_STREAK_ON = 2;          // столько подряд "похоже на код" кадров, чтобы включить подсветку
+const DETECT_STREAK_OFF = 3;         // столько подряд "пусто", чтобы выключить
+const DETECT_SCORE_THRESHOLD = 0.16; // доля резких переходов, начиная с которой считаем "похоже на код"
+const FOCUS_NUDGE_COOLDOWN_MS = 1500;
+
+function scoreCodeLikeness(sourceCanvas) {
+  if (!sourceCanvas || !sourceCanvas.width || !sourceCanvas.height) return 0;
+  if (!detectAnalysisCanvas) {
+    detectAnalysisCanvas = document.createElement("canvas");
+    detectAnalysisCanvas.width = DETECT_GRID;
+    detectAnalysisCanvas.height = DETECT_GRID;
+    detectAnalysisCtx = detectAnalysisCanvas.getContext("2d", { willReadFrequently: true });
+  }
+  try {
+    detectAnalysisCtx.drawImage(sourceCanvas, 0, 0, DETECT_GRID, DETECT_GRID);
+    const data = detectAnalysisCtx.getImageData(0, 0, DETECT_GRID, DETECT_GRID).data;
+    const n = DETECT_GRID * DETECT_GRID;
+    const gray = new Uint8ClampedArray(n);
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      gray[i] = (data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114) | 0;
+    }
+    // Считаем резкие переходы яркости и по строкам, и по столбцам — штрих-код
+    // даёт их в основном по одной оси, QR — по обеим, так надёжнее для обоих.
+    let transitions = 0, total = 0;
+    const TH = 28;
+    for (let y = 0; y < DETECT_GRID; y++) {
+      for (let x = 1; x < DETECT_GRID; x++) {
+        if (Math.abs(gray[y * DETECT_GRID + x - 1] - gray[y * DETECT_GRID + x]) > TH) transitions++;
+        total++;
+      }
+    }
+    for (let x = 0; x < DETECT_GRID; x++) {
+      for (let y = 1; y < DETECT_GRID; y++) {
+        if (Math.abs(gray[(y - 1) * DETECT_GRID + x] - gray[y * DETECT_GRID + x]) > TH) transitions++;
+        total++;
+      }
+    }
+    return total ? transitions / total : 0;
+  } catch (e) {
+    return 0; // кадр не читается (кросс-доменные пиксели и т.п.) — просто не подсказываем в этот раз
+  }
+}
+
+function setViewfinderDetect(on) {
+  const vf = document.getElementById("viewfinder");
+  if (!vf) return;
+  // Настоящий результат (зелёный/красный) важнее "похоже на код" — никогда
+  // не перекрываем его жёлтой подсветкой.
+  if (on && (vf.classList.contains("vf-ok") || vf.classList.contains("vf-err"))) return;
+  vf.classList.toggle("vf-detect", on);
+}
+
+function resetDetectionState() {
+  detectOnStreak = 0; detectOffStreak = 0;
+  if (detectActive) { detectActive = false; setViewfinderDetect(false); }
+}
+
+// Толчок автофокуса прямо сейчас, а не по общему таймеру (см. setupFocusMode
+// выше) — переключаем focusMode на "single-shot" и сразу обратно на
+// "continuous" одним приёмом (экспозицию/баланс белого передаём в том же
+// вызове, чтобы не сбрасывать их и не "мигать" яркостью — тот же приём, что
+// и в setupFocusMode/setupTapToFocus). Если у устройства нет ни того, ни
+// другого фокуса — просто ничего не делаем, подсветка всё равно работает.
+function nudgeFocusOnDetection() {
+  const now = Date.now();
+  if (now - lastFocusNudgeAt < FOCUS_NUDGE_COOLDOWN_MS) return;
+  lastFocusNudgeAt = now;
+  try {
+    const track = getActiveVideoTrack();
+    if (!track || !track.getCapabilities) return;
+    const caps = track.getCapabilities();
+    if (!caps.focusMode || !caps.focusMode.includes("single-shot")) return;
+    const base = {};
+    if (caps.exposureMode && caps.exposureMode.includes("continuous")) base.exposureMode = "continuous";
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes("continuous")) base.whiteBalanceMode = "continuous";
+    track.applyConstraints({ advanced: [{ ...base, focusMode: "single-shot" }] }).then(() => {
+      if (caps.focusMode.includes("continuous")) {
+        setTimeout(() => {
+          track.applyConstraints({ advanced: [{ ...base, focusMode: "continuous" }] }).catch(() => {});
+        }, 380);
+      }
+    }).catch(() => {});
+  } catch (e) { /* нет доступа к автофокусу — не критично */ }
+}
+
+// Вызывается на каждый проанализированный кадр (и из нативного цикла
+// startNativeScanLoop, и из запасного startDetectionAssistLoop ниже) с уже
+// обрезанным ровно по рамке-видоискателю канвасом. Дебаунс на несколько
+// кадров в обе стороны — чтобы случайный шум одного кадра не мигал рамкой.
+function processDetectionFrame(sourceCanvas) {
+  if (scanLocked) { resetDetectionState(); return; }
+  const score = scoreCodeLikeness(sourceCanvas);
+  if (score >= DETECT_SCORE_THRESHOLD) {
+    detectOnStreak++; detectOffStreak = 0;
+    if (!detectActive && detectOnStreak >= DETECT_STREAK_ON) {
+      detectActive = true;
+      setViewfinderDetect(true);
+      nudgeFocusOnDetection();
+    }
+  } else {
+    detectOffStreak++; detectOnStreak = 0;
+    if (detectActive && detectOffStreak >= DETECT_STREAK_OFF) {
+      detectActive = false;
+      setViewfinderDetect(false);
+    }
+  }
+}
+
+// Запасной цикл анализа кадров — для браузеров БЕЗ нативного BarcodeDetector
+// (там кадры для этой эвристики берёт напрямую startNativeScanLoop, у него
+// уже готов ровно обрезанный по рамке канвас на каждый кадр). Здесь свой
+// маленький канвас и пониженная частота (~6 кадров/сек, а не 20 как у
+// html5-qrcode) — этого достаточно для подсветки/толчка фокуса и не
+// нагружает слабые телефоны дополнительной работой.
+let detectAssistTimer = null;
+let detectAssistCanvas = null, detectAssistCtx = null;
+function startDetectionAssistLoop() {
+  stopDetectionAssistLoop();
+  detectAssistCanvas = document.createElement("canvas");
+  detectAssistCtx = detectAssistCanvas.getContext("2d", { willReadFrequently: true });
+  detectAssistTimer = setInterval(() => {
+    if (scanLocked) { resetDetectionState(); return; }
+    try {
+      const videoEl = document.querySelector("#reader video");
+      if (!videoEl || videoEl.readyState < 2) return;
+      const crop = computeViewfinderCropRect(videoEl);
+      if (!crop || crop.sw <= 4 || crop.sh <= 4) return;
+      const cw = Math.round(crop.sw), ch = Math.round(crop.sh);
+      if (detectAssistCanvas.width !== cw) detectAssistCanvas.width = cw;
+      if (detectAssistCanvas.height !== ch) detectAssistCanvas.height = ch;
+      detectAssistCtx.drawImage(videoEl, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, cw, ch);
+      processDetectionFrame(detectAssistCanvas);
+    } catch (e) { /* кадр не читается — пропускаем, следующий будет через 160мс */ }
+  }, 160);
+}
+function stopDetectionAssistLoop() {
+  if (detectAssistTimer) { clearInterval(detectAssistTimer); detectAssistTimer = null; }
+  detectAssistCanvas = null; detectAssistCtx = null;
+  resetDetectionState();
 }
 
 function onScanDecoded(decodedText) {
@@ -2672,7 +2956,7 @@ function onScanDecoded(decodedText) {
     scanLocked = true;
     resetScanPanels();
     document.getElementById("scanHintText").classList.add("hidden");
-    document.getElementById("scanCheckMsg").innerHTML = renderVerifyResultHtml(p);
+    document.getElementById("scanCheckMsg").innerHTML = renderVerifyResultHtml(p, realText);
     document.getElementById("scanCheckResult").classList.remove("hidden");
     return;
   }
@@ -2794,6 +3078,7 @@ function closeScanner() {
   clearInterval(focusRetryTimer);
   focusRetryTimer = null;
   stopNativeScanLoop();
+  stopDetectionAssistLoop();
   if (html5QrCode) {
     // .stop() может не только отклонить промис (это уже ловилось через
     // .catch), но и бросить исключение СИНХРОННО — например, если камера так
