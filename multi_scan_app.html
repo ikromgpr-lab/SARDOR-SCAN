@@ -1163,6 +1163,14 @@ let shopsList = [];       // список цехов (лист "Shops") — дл
 let skuList = [];         // [{code,name,group}, ...] — справочник СКЮ с сервера
 let skuCodesSet = null;   // Set нормализованных кодов для быстрой проверки при сканировании
 let scanLocked = false;
+// Подписи полей этикетки ("Ма" -> "Мастер" и т.п.) и расшифровка конкретных
+// значений ("Смена: 1" -> "День") — теперь редактируются в Google Таблице,
+// лист "FieldLabels" (см. серверный getFieldLabels()), а не только в коде.
+// FIELD_LABEL_NAMES (объявлен ниже, ближе к «Проверке») остаётся как
+// офлайн-подстраховка на случай, если лист ещё не подгружен/сети нет —
+// fieldLabelOverrides всегда проверяется ПЕРВЫМ и имеет приоритет.
+let fieldLabelOverrides = {};     // код(нижний регистр) -> полное название, с листа "FieldLabels"
+let fieldValueDecodeMap = {};     // код(нижний регистр) -> { "значение": "расшифровка" }
 
 // ---------- офлайн-кэш справочников (склады/агенты/цеха/СКЮ) ----------
 // Раньше эти списки грузились ТОЛЬКО с сервера при каждом входе и нигде не
@@ -1181,6 +1189,7 @@ function saveRefDataCache() {
   try {
     localStorage.setItem(REF_CACHE_KEY, JSON.stringify({
       warehouses: warehousesList, agents: agentsList, shops: shopsList, skus: skuList,
+      fieldLabels: fieldLabelOverrides, fieldValueLabels: fieldValueDecodeMap,
       savedAt: Date.now()
     }));
   } catch (e) {}
@@ -1214,9 +1223,10 @@ async function refreshRefDataFromServer() {
       apiGet({ action: "warehouses" }),
       apiGet({ action: "agents" }),
       apiGet({ action: "shops" }),
-      apiGet({ action: "skus" })
+      apiGet({ action: "skus" }),
+      apiGet({ action: "fieldLabels" })
     ]);
-    const [whRes, agentsRes, shopsRes, skusRes] = results;
+    const [whRes, agentsRes, shopsRes, skusRes, fieldLabelsRes] = results;
     let changed = false;
     // Обновляем только то, что реально пришло — частичный сбой сети (пришли
     // СКЮ, а склады нет) не должен затирать уже рабочие данные пустотой.
@@ -1226,6 +1236,11 @@ async function refreshRefDataFromServer() {
     if (skusRes.status === "fulfilled") {
       skuList = skusRes.value.skus || [];
       skuCodesSet = new Set(skuList.map(s => String(s.code).trim().toLowerCase()));
+      changed = true;
+    }
+    if (fieldLabelsRes.status === "fulfilled") {
+      fieldLabelOverrides = fieldLabelsRes.value.labels || {};
+      fieldValueDecodeMap = fieldLabelsRes.value.valueLabels || {};
       changed = true;
     }
     if (changed) saveRefDataCache();
@@ -1506,9 +1521,10 @@ async function showMain() {
     apiGet({ action: "warehouses" }),
     apiGet({ action: "agents" }),
     apiGet({ action: "shops" }),
-    apiGet({ action: "skus" })
+    apiGet({ action: "skus" }),
+    apiGet({ action: "fieldLabels" })
   ]);
-  const [whRes, agentsRes, shopsRes, skusRes] = results;
+  const [whRes, agentsRes, shopsRes, skusRes, fieldLabelsRes] = results;
   const anyOffline = results.some(r => r.status === "rejected");
   const cache = anyOffline ? loadRefDataCache() : null;
   warehousesList = whRes.status === "fulfilled" ? (whRes.value.warehouses || []) : ((cache && cache.warehouses) || []);
@@ -1517,6 +1533,14 @@ async function showMain() {
   shopsList = shopsRes.status === "fulfilled" ? (shopsRes.value.shops || []) : ((cache && cache.shops) || []);
   skuList = skusRes.status === "fulfilled" ? (skusRes.value.skus || []) : ((cache && cache.skus) || []);
   skuCodesSet = new Set(skuList.map(s => String(s.code).trim().toLowerCase()));
+  // "FieldLabels" — необязательная, "дополняющая" таблица (подписи полей
+  // этикетки/расшифровка значений, редактируется в Google Таблице, см.
+  // getFieldLabels() на сервере). Если её ещё нет на старых развёртываниях
+  // серверного скрипта, action просто не найдётся и запрос уйдёт в rejected —
+  // тогда используем офлайн-кэш либо пустой словарь, а FIELD_LABEL_NAMES
+  // (см. ниже) отработает как и раньше, безо всякой потери функциональности.
+  fieldLabelOverrides = fieldLabelsRes.status === "fulfilled" ? (fieldLabelsRes.value.labels || {}) : ((cache && cache.fieldLabels) || {});
+  fieldValueDecodeMap = fieldLabelsRes.status === "fulfilled" ? (fieldLabelsRes.value.valueLabels || {}) : ((cache && cache.fieldValueLabels) || {});
   saveRefDataCache(); // обновляем кэш свежими данными (а если офлайн — молча пересохраняем то же самое, без вреда)
   if (anyOffline) {
     if (cache) {
@@ -2259,6 +2283,21 @@ const FIELD_LABEL_NAMES = {
   "об": "Оборудование", "обор": "Оборудование",
   "ма": "Мастер", "мастер": "Мастер"
 };
+// fieldLabelOverrides (лист "FieldLabels" в Google Таблице) проверяется
+// ПЕРВЫМ — так правки в таблице сразу перекрывают "зашитый" в коде
+// FIELD_LABEL_NAMES, который остаётся лишь офлайн-подстраховкой.
+function resolveFieldLabel(key) {
+  return fieldLabelOverrides[key] || FIELD_LABEL_NAMES[key] || null;
+}
+// Расшифровка конкретного ЗНАЧЕНИЯ поля (например "Смена: 1" -> "День") —
+// тоже из листа "FieldLabels" (колонки "Значение"/"Расшифровка"). В отличие
+// от названия поля, сырое значение в отображении не прячем — дописываем
+// расшифровку РЯДОМ ("1 (День)"), чтобы не терять исходные данные этикетки.
+function decorateFieldValue(key, value) {
+  const map = fieldValueDecodeMap[key];
+  const decoded = map && map[String(value).trim()];
+  return decoded ? `${value} (${decoded})` : value;
+}
 const GENERIC_FIELD_RE = /([A-Za-zА-Яа-яЁё]+)\s*:\s*([^\s:][^\s]*)/g;
 function extractLabeledFields(text) {
   const fields = [];
@@ -2268,7 +2307,7 @@ function extractLabeledFields(text) {
     const rawLabel = m[1].trim(), value = m[2].trim();
     if (!value) continue;
     const key = rawLabel.toLowerCase();
-    fields.push({ label: FIELD_LABEL_NAMES[key] || rawLabel, rawLabel: key, value });
+    fields.push({ label: resolveFieldLabel(key) || rawLabel, rawLabel: key, value: decorateFieldValue(key, value) });
   }
   return fields;
 }
