@@ -434,11 +434,20 @@
   .viewfinder.vf-err .corner { border-color:#e64b3c; filter: drop-shadow(0 0 6px rgba(230,75,60,.8)); }
   .viewfinder.vf-detect .corner { border-color:#f5a623; filter: drop-shadow(0 0 6px rgba(245,166,35,.75)); }
   /* Небольшая подпись прямо на рамке — чтобы было понятно с первого взгляда,
-     что означает цвет, а не только цветом (доступность + просто приятнее). */
+     что означает цвет, а не только цветом (доступность + просто приятнее).
+     Раньше стояла НИЖЕ рамки (bottom:-38px, то есть за пределами
+     .viewfinder) — область камеры (.scan-video-wrap) на телефоне имеет
+     фиксированную высоту (см. pinScanOverlayToViewport), и ровно в момент
+     успешного скана под рамкой одновременно разворачивается панель с
+     полными данными этикетки (.scan-sheet растёт) — чип оказывался в этой
+     же полосе и его перекрывало/обрезало. Перенесена ВНУТРЬ рамки (bottom
+     положительный, у нижнего края квадрата) — теперь она всегда поверх
+     видео и никогда не зависит от того, что происходит ниже. */
   .vf-status-chip {
-    position:absolute; left:50%; bottom:-38px; transform:translateX(-50%); white-space:nowrap;
+    position:absolute; left:50%; bottom:14px; transform:translateX(-50%); white-space:nowrap;
     font-size:12px; font-weight:800; letter-spacing:.02em; padding:5px 14px; border-radius:20px;
     color:#fff; opacity:0; transition: opacity .15s ease, transform .15s ease; pointer-events:none;
+    z-index:3;
   }
   .viewfinder.vf-ok .vf-status-chip { opacity:1; background:#2ecc71; box-shadow:0 4px 12px rgba(46,204,113,.4); }
   .viewfinder.vf-ok .vf-status-chip::before { content:"✓ Распознано"; }
@@ -446,7 +455,7 @@
   .viewfinder.vf-err .vf-status-chip::before { content:"✕ Не подходит"; }
   .viewfinder.vf-detect .vf-status-chip { opacity:1; background:#f5a623; box-shadow:0 4px 12px rgba(245,166,35,.4); }
   .viewfinder.vf-detect .vf-status-chip::before { content:"🔎 Фокусируюсь…"; }
-  /* .vf-lock — маленькая "бегущая" рамка ВНУТРИ общей рамки-видоискателя,
+  /* .vf-lock — маленькая рамка-локатор ВНУТРИ общей рамки-видоискателя,
      которая приближённо показывает, ГДЕ именно в кадре сейчас находится
      похожий на код узор (см. processDetectionFrame/updateLockBox в JS) —
      как у нативной камеры телефона (сама рамка "находит" код и подстраивается
@@ -455,19 +464,26 @@
      яркости, посчитанная не одним числом на весь кадр, а по блокам, чтобы
      найти именно ту область, где переходов больше всего. Бирюзовый цвет —
      отдельно от белой/зелёной/красной/жёлтой рамки, чтобы не путать с
-     результатом сканирования (тот же акцент, что у кнопки "Сканер"). */
+     результатом сканирования (тот же акцент, что у кнопки "Сканер").
+     По просьбе "не сплошной квадрат, только уголки, и немного размыто" —
+     сплошную рамку убрали, оставили только 4 уголка (тот же приём, что у
+     .corner на самой .viewfinder — 4 маленьких span'а по углам), и добавили
+     лёгкое blur — не резкая чёткая рамка, а мягкое "предположение", а не
+     точный результат (тот и так подсвечивается отдельно — .vf-ok/.vf-err). */
   .vf-lock {
-    position:absolute; border:2px solid #22d3ee; border-radius:6px; pointer-events:none;
-    box-shadow:0 0 10px 1px rgba(34,211,238,.6), inset 0 0 8px rgba(34,211,238,.25);
-    opacity:0; transform:scale(.9);
-    transition: left .12s ease-out, top .12s ease-out, width .12s ease-out, height .12s ease-out, opacity .15s ease, transform .15s ease;
+    position:absolute; pointer-events:none;
+    opacity:0; transform:scale(.92); filter: blur(.5px);
+    transition: left .16s ease-out, top .16s ease-out, width .16s ease-out, height .16s ease-out, opacity .2s ease, transform .2s ease;
   }
-  .vf-lock.show { opacity:1; transform:scale(1); }
-  .vf-lock::before, .vf-lock::after {
-    content:""; position:absolute; width:10px; height:10px; border:2px solid #22d3ee;
+  .vf-lock.show { opacity:.8; transform:scale(1); }
+  .vfl-corner {
+    position:absolute; width:16px; height:16px; border:2.5px solid #22d3ee;
+    filter: drop-shadow(0 0 5px rgba(34,211,238,.7));
   }
-  .vf-lock::before { top:-2px; left:-2px; border-right:none; border-bottom:none; }
-  .vf-lock::after { bottom:-2px; right:-2px; border-left:none; border-top:none; }
+  .vfl-corner.tl { top:-2px; left:-2px; border-right:none; border-bottom:none; border-top-left-radius:8px; }
+  .vfl-corner.tr { top:-2px; right:-2px; border-left:none; border-bottom:none; border-top-right-radius:8px; }
+  .vfl-corner.bl { bottom:-2px; left:-2px; border-right:none; border-top:none; border-bottom-left-radius:8px; }
+  .vfl-corner.br { bottom:-2px; right:-2px; border-left:none; border-top:none; border-bottom-right-radius:8px; }
   /* Тонкая бегущая линия-скан внутри рамки в обычном режиме — чисто
      декоративный "технологичный" штрих (как у сканеров штрих-кодов),
      не мешает распознаванию (pointer-events:none) и гасится в состояниях
@@ -1061,7 +1077,10 @@
       <span class="corner tl"></span><span class="corner tr"></span>
       <span class="corner bl"></span><span class="corner br"></span>
       <span class="vf-scanline"></span>
-      <div class="vf-lock" id="vfLock"></div>
+      <div class="vf-lock" id="vfLock">
+        <span class="vfl-corner tl"></span><span class="vfl-corner tr"></span>
+        <span class="vfl-corner bl"></span><span class="vfl-corner br"></span>
+      </div>
       <span class="vf-status-chip"></span>
     </div>
     <div class="zoom-hint zh-off" id="zoomHint">🤏 Разведите пальцы на экране, чтобы приблизить</div>
@@ -2225,13 +2244,20 @@ function getSkuName(code) {
 // Для старых этикеток без подписанных полей (просто "150-11.09.2026" или
 // "150-11.09.2026-хвост") показываем то, что осталось после кода и даты,
 // как отдельные пронумерованные строки — тоже ничего не отбрасываем.
+// Этот словарь — единственное место, которое нужно править, если на
+// этикетке появится новая подпись поля: ключ — подпись с этикетки в нижнем
+// регистре (как она встречается ДО двоеточия, например "Ма" -> "ма"),
+// значение — как показать это поле человеку в «Проверке». Ничего искать по
+// всему файлу не нужно — сообщите новую подпись и что она значит, и сюда
+// добавляется ещё одна строка.
 const FIELD_LABEL_NAMES = {
   "sku": "Код товара (SKU)", "скю": "Код товара (СКЮ)", "код": "Код товара",
   "дата": "Дата производства",
   "пр": "Протокол", "прот": "Протокол",
   "см": "Смена", "смена": "Смена",
   "оп": "Оператор", "уп": "Упаковщик",
-  "об": "Оборудование", "обор": "Оборудование"
+  "об": "Оборудование", "обор": "Оборудование",
+  "ма": "Мастер", "мастер": "Мастер"
 };
 const GENERIC_FIELD_RE = /([A-Za-zА-Яа-яЁё]+)\s*:\s*([^\s:][^\s]*)/g;
 function extractLabeledFields(text) {
