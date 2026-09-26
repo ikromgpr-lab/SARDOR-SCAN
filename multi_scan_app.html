@@ -167,13 +167,19 @@
      дней/процента — всё одного цвета со статусом, как и попросили. */
   .shelf-block { margin:2px 0 10px; padding:11px 13px; border-radius:14px; border:1px solid var(--ok-border); background:var(--ok-bg); }
   .shelf-block.shelf-bad { border-color:var(--err-border); background:var(--err-bg); }
-  .shelf-block-top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:9px; }
+  .shelf-block-top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:7px; }
   .shelf-block-label { font-size:12px; font-weight:700; color:var(--ok-text); letter-spacing:.01em; }
   .shelf-block.shelf-bad .shelf-block-label { color:var(--err-text); }
-  .shelf-bar-track { height:8px; border-radius:5px; background:rgba(0,0,0,.09); overflow:hidden; }
+  /* Строки "Срок годности" / "День производства" — компактные пары
+     подпись-значение внутри карточки, тот же порядок, что и попросили:
+     сначала срок годности, потом день производства. */
+  .shelf-row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:2px 0; font-size:12px; }
+  .shelf-row-label { color:var(--muted); }
+  .shelf-row-value { font-weight:700; color:var(--ink); }
+  .shelf-bar-track { height:8px; border-radius:5px; background:rgba(0,0,0,.09); overflow:hidden; margin-top:6px; }
   .shelf-bar-fill { height:100%; border-radius:5px; background:var(--ok-text, #1e5b30); transition:width .35s ease; }
   .shelf-block.shelf-bad .shelf-bar-fill { background:var(--err-text, #7a1f14); }
-  .shelf-block-nums { display:flex; justify-content:space-between; align-items:baseline; margin-top:7px; }
+  .shelf-block-nums { display:flex; justify-content:space-between; align-items:baseline; margin-top:8px; padding-top:7px; border-top:1px dashed rgba(0,0,0,.1); }
   .shelf-days { font-size:12.5px; font-weight:700; color:var(--ok-text); }
   .shelf-block.shelf-bad .shelf-days { color:var(--err-text); }
   .shelf-pct { font-size:16px; font-weight:800; color:var(--ok-text); }
@@ -2411,27 +2417,59 @@ function computeShelfStatus(code, prodIsoDate) {
   if (!info || !prodIsoDate) return null;
   const limit = Number(warehouseKindClient(ME.warehouse) === "sgp" ? info.sgpDay : info.regionDay) || 0;
   if (!limit) return null; // справочник не заполнен для этого СКЮ/склада — блок просто не показываем, чтобы не путать нулями
-  const ageDays = Math.floor((Date.now() - new Date(prodIsoDate + "T00:00:00").getTime()) / 86400000);
+  const prodDate = new Date(prodIsoDate + "T00:00:00");
+  const ageDays = Math.floor((Date.now() - prodDate.getTime()) / 86400000);
+  // Статус (Норма/Превышен) — как и раньше, от лимита страховочного срока
+  // (sgpDay/regionDay): это порог нарушения, обычно заметно короче полного
+  // срока годности, и именно он определяет цвет/статус.
   const status = ageDays >= limit ? "Превышен" : "Норма";
-  const pct = Math.max(0, Math.round((ageDays / limit) * 100));
-  return { status, ageDays, limitDay: limit, pct };
+
+  // "Срок годности" — ОТДЕЛЬНАЯ величина (колонка "Срок годности, мес" в
+  // листе SkuRef), полный срок жизни товара от даты производства. По
+  // просьбе процент и точку отсчёта считаем именно от него (от даты
+  // производства до даты истечения срока годности), а не от более короткого
+  // лимита страховочного срока — так процент 0-100% значит "сколько от
+  // полного срока годности уже прошло", а не может быть, как раньше, 736%.
+  const shelfMonths = Number(info.shelfMonths) || 0;
+  let expiryIso = null, shelfLifeDays = null, pctShelf = null;
+  if (shelfMonths > 0) {
+    const expiry = new Date(prodDate);
+    expiry.setMonth(expiry.getMonth() + shelfMonths);
+    expiryIso = expiry.toISOString().slice(0, 10);
+    shelfLifeDays = Math.round((expiry.getTime() - prodDate.getTime()) / 86400000);
+    if (shelfLifeDays > 0) pctShelf = Math.max(0, Math.round((ageDays / shelfLifeDays) * 100));
+  }
+  return { status, ageDays, limitDay: limit, shelfMonths, expiryIso, shelfLifeDays, pctShelf };
 }
-// Карточка статуса — подпись, шкала заполнения и числа дней/процента одного
-// цвета со статусом (зелёный — «Норма», красный — «Превышен»), как и просили.
-function shelfStatusBlockHtml(s) {
+// Карточка статуса. Порядок, как и попросили: сначала срок годности, потом
+// день производства, потом сколько дней прошло (с нормой страховочного
+// срока слева от него), и в конце — шкала с процентом от срока годности.
+// Цвет подписи/шкалы/чисел — один в один со статусом (зелёный — «Норма»,
+// красный — «Превышен»).
+function shelfStatusBlockHtml(s, prodDisplayDate) {
   if (!s) return "";
   const isBad = s.status === "Превышен";
-  const barWidth = Math.min(s.pct, 100);
+  const hasShelf = s.shelfMonths > 0 && s.shelfLifeDays > 0;
+  // Процент и заполнение шкалы — от полного срока годности, когда он известен;
+  // если в справочнике не заполнен (старые СКЮ без колонки "Срок годности, мес") —
+  // не теряем показатель, а считаем как раньше, от лимита страховочного срока.
+  const pct = hasShelf ? s.pctShelf : Math.max(0, Math.round((s.ageDays / s.limitDay) * 100));
+  const barWidth = Math.min(pct, 100);
+  const shelfLine = hasShelf
+    ? `<div class="shelf-row"><span class="shelf-row-label">Срок годности</span><span class="shelf-row-value">${s.shelfMonths} мес. (до ${ddmmyyyy(s.expiryIso)})</span></div>`
+    : "";
   return `<div class="shelf-block${isBad ? " shelf-bad" : ""}">
     <div class="shelf-block-top">
       <span class="shelf-block-label">⏳ Страховочный срок</span>
       <span class="status-pill ${isBad ? "status-bad" : "status-ok"}">${s.status}</span>
     </div>
-    <div class="shelf-bar-track"><div class="shelf-bar-fill" style="width:${barWidth}%"></div></div>
+    ${shelfLine}
+    <div class="shelf-row"><span class="shelf-row-label">День производства</span><span class="shelf-row-value">${prodDisplayDate}</span></div>
     <div class="shelf-block-nums">
-      <span class="shelf-days">${s.ageDays} дн. из ${s.limitDay} дн.</span>
-      <span class="shelf-pct">${s.pct}%</span>
+      <span class="shelf-days">${s.limitDay} дн. норма&nbsp;→&nbsp;${s.ageDays} дн. прошло</span>
+      <span class="shelf-pct">${pct}%</span>
     </div>
+    <div class="shelf-bar-track"><div class="shelf-bar-fill" style="width:${barWidth}%"></div></div>
   </div>`;
 }
 // ---------- «Проверка»: полный разбор данных этикетки по строкам ----------
@@ -2498,7 +2536,7 @@ function extractLabeledFields(text) {
 function buildDetailedFields(rawText, p) {
   const rows = [];
   rows.push({ label: "Дата производства", value: p.displayDate });
-  const shelfHtml = shelfStatusBlockHtml(computeShelfStatus(p.lot, p.isoDate));
+  const shelfHtml = shelfStatusBlockHtml(computeShelfStatus(p.lot, p.isoDate), p.displayDate);
   if (shelfHtml) rows.push({ special: true, html: shelfHtml });
   rows.push({ label: "Код товара (SKU)", value: p.lot });
   const name = getSkuName(p.lot);
