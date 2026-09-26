@@ -19,12 +19,25 @@
     --radius:16px; --radius-sm:12px;
     --shadow:0 4px 18px rgba(20,20,20,.08), 0 1px 3px rgba(20,20,20,.04);
     --nav-h:76px;
+    /* "Технологичный" акцент — отдельно от бренд-красного, используется
+       везде, что связано со сканированием (кнопка "Сканер", рамка камеры,
+       индикаторы наведения на код) и как декоративный штрих по всему
+       приложению (тонкая сетка фона, моноширинные счётчики) — см. правки
+       по просьбе "сделай дизайн более технологичным". */
+    --tech-dark:#0f1b2d; --tech:#0891b2; --tech-bright:#22d3ee;
+    --mono: 'SF Mono', 'Roboto Mono', 'Consolas', 'Courier New', monospace;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin:0; padding:0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    background: var(--bg);
+    /* Очень тонкая "чертёжная" сетка поверх фонового цвета — по просьбе
+       сделать дизайн в целом более технологичным. Едва заметна (2% чёрного),
+       не мешает читаемости и не спорит с карточками/текстом поверх неё. */
+    background:
+      repeating-linear-gradient(0deg, rgba(20,20,20,.025) 0px, rgba(20,20,20,.025) 1px, transparent 1px, transparent 28px),
+      repeating-linear-gradient(90deg, rgba(20,20,20,.025) 0px, rgba(20,20,20,.025) 1px, transparent 1px, transparent 28px),
+      var(--bg);
     color: var(--ink);
     min-height: 100dvh;
   }
@@ -42,7 +55,15 @@
     min-height:100dvh;
     display:flex; align-items:center; justify-content:center;
     padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
-    background: radial-gradient(120% 90% at 50% -10%, #ffffff 0%, #fdecee 38%, #f6d3d8 70%, #f0c2c8 100%);
+    /* Тонкая сетка поверх премиального красного градиента — тот же
+       "технологичный" штрих, что и у фона всего приложения (см. body выше),
+       здесь чуть заметнее (4% вместо 2.5%), т.к. это первый экран и повод
+       сразу задать тон "это сканирующее приложение", не разрушая уже
+       сделанный премиальный стеклянный вид карточки входа. */
+    background:
+      repeating-linear-gradient(0deg, rgba(20,20,20,.04) 0px, rgba(20,20,20,.04) 1px, transparent 1px, transparent 26px),
+      repeating-linear-gradient(90deg, rgba(20,20,20,.04) 0px, rgba(20,20,20,.04) 1px, transparent 1px, transparent 26px),
+      radial-gradient(120% 90% at 50% -10%, #ffffff 0%, #fdecee 38%, #f6d3d8 70%, #f0c2c8 100%);
     position:relative; overflow:hidden;
   }
   /* мягкие декоративные "пятна" света — премиальная глубина фона, чисто
@@ -56,8 +77,27 @@
     background: radial-gradient(circle, rgba(200,16,46,.08), transparent 70%); pointer-events:none;
   }
   .login-box { width:100%; max-width:400px; position:relative; z-index:1; }
-  .login-logo-row { display:flex; flex-direction:column; align-items:center; gap:12px; margin-bottom:22px; }
-  .login-logo-row .logo { width:96px; height:96px; }
+  .login-logo-row { display:flex; flex-direction:column; align-items:center; gap:12px; margin-bottom:22px; position:relative; }
+  .login-logo-row .logo { width:96px; height:96px; position:relative; z-index:1; }
+  /* Бирюзовый "луч сканера", проходящий по логотипу — чисто декоративная
+     деталь для более технологичного первого впечатления (это ведь приложение
+     сканирования этикеток), тот же акцент, что и в самом сканере (.vf-scanline). */
+  .login-scan-beam {
+    position:absolute; left:50%; top:0; width:70px; height:2px; transform:translateX(-50%);
+    background:linear-gradient(90deg, transparent, var(--tech-bright), transparent);
+    box-shadow:0 0 8px 1px rgba(34,211,238,.65); opacity:0; pointer-events:none; z-index:2;
+    animation: loginBeamSweep 2.8s cubic-bezier(.4,0,.6,1) infinite;
+  }
+  @keyframes loginBeamSweep {
+    0%   { top:2px; opacity:0; }
+    8%   { opacity:.85; }
+    50%  { top:90px; opacity:.85; }
+    58%  { opacity:0; }
+    100% { top:2px; opacity:0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .login-scan-beam { animation:none; opacity:0; }
+  }
   .login-logo-row h1 { font-size:23px; margin:0; color:var(--ink); text-align:center; font-weight:800; letter-spacing:-.2px; }
   .login-logo-row .brand-red { color: var(--red); }
   .login-desc { font-size:13px; color:var(--muted); text-align:center; line-height:1.55; margin:0 6px 22px; }
@@ -147,25 +187,33 @@
      ней при незаполненных полях, пользователь должен увидеть объяснение
      (всплывающее уведомление), а не просто "мёртвую" кнопку без реакции. */
   .btn.soft-disabled { background:#d8dde6; color:#8b95a5; box-shadow:none; }
-  /* Кнопка "Сканировать" — по просьбе пользователя выделена среди остальных
-     (в целом одинаковых) кнопок так, чтобы сразу было понятно: это основное
-     действие на экране операций. Крупнее, с более заметной тенью-свечением
-     (мягко "дышит" через анимацию) и увеличенной иконкой камеры. Цвета —
-     те же бренд-токены (--red/--red-dark), система остальных кнопок не
-     трогается. */
-  #scanBtn {
+  /* Кнопка "Сканер" (раньше — "Сканировать штрих-код") — по просьбе
+     пользователя выделена среди остальных (в целом одинаковых) кнопок так,
+     чтобы сразу было понятно: это основное действие на экране операций.
+     Крупнее, с более заметной тенью-свечением (мягко "дышит" через
+     анимацию) и увеличенной иконкой камеры. Цвет — намеренно НЕ бренд-
+     красный (как остальные кнопки), а отдельный тёмно-синий/бирюзовый
+     градиент — "технологичный" акцент именно для функции сканирования,
+     тот же бирюзовый (var(--tech-bright)), что и у индикатора наведения на
+     код в самом сканере (см. .vf-lock/.vf-detect выше) — так кнопка и экран
+     сканера визуально читаются как единая система, а не просто разные
+     цветные кнопки. Тот же стиль — у ЛЮБОЙ кнопки, открывающей сканер
+     (#verifyScanBtn на вкладке «Проверка» — по просьбе "везде где есть
+     кнопки сканирование чтобы они тоже были в новой дизайне"). */
+  #scanBtn, #verifyScanBtn {
     padding:16px; font-size:16px; font-weight:700; letter-spacing:.2px;
     border-radius:14px;
-    box-shadow: 0 4px 14px rgba(161,13,36,.38);
+    background: linear-gradient(135deg, var(--tech-dark) 0%, #123a52 55%, var(--tech) 100%);
+    box-shadow: 0 4px 14px rgba(8,145,178,.4);
     animation: scanBtnGlow 2.6s ease-in-out infinite;
   }
   #scanBtn .scan-btn-ic { font-size:19px; vertical-align:-2px; margin-right:2px; }
   @keyframes scanBtnGlow {
-    0%, 100% { box-shadow: 0 4px 14px rgba(161,13,36,.38), 0 0 0 0 rgba(200,16,46,.35); }
-    50% { box-shadow: 0 4px 14px rgba(161,13,36,.38), 0 0 0 7px rgba(200,16,46,0); }
+    0%, 100% { box-shadow: 0 4px 14px rgba(8,145,178,.4), 0 0 0 0 rgba(34,211,238,.4); }
+    50% { box-shadow: 0 4px 14px rgba(8,145,178,.4), 0 0 0 7px rgba(34,211,238,0); }
   }
   @media (prefers-reduced-motion: reduce) {
-    #scanBtn { animation:none; }
+    #scanBtn, #verifyScanBtn { animation:none; }
   }
   .login-footer { text-align:center; margin-top:16px; font-size:11px; color:#b0a8a6; }
 
@@ -192,6 +240,10 @@
   .cart-row button { background:var(--err-bg); border:1px solid var(--err-border); color:var(--err-text); border-radius:6px; padding:4px 9px; font-size:11px; }
   .wh-row-label { min-width:0; word-break:break-word; }
   .badge { display:inline-block; background:var(--red-light); color:var(--red); border-radius:6px; padding:2px 7px; font-size:11px; margin-left:6px; font-weight:600; }
+  /* Моноширинный шрифт — только для числовых значков (счётчики "Входящих"/
+     "Отправленных"), НЕ для .badge.role (там текст роли, не число) —
+     "технологичный" штрих именно там, где это цифры-показания. */
+  .badge:not(.role) { font-family:var(--mono); }
   .row2 { display:flex; gap:8px; }
   .row2 > div { flex:1; }
 
@@ -293,7 +345,11 @@
            плохая дата, дата в будущем) — короткая красная вспышка со звуком
            (playRejectBeep()), после чего рамка гаснет и сканирование само
            продолжается, ничего вводить не нужно. */
-    position:absolute; top:42%; left:50%; width:72%; max-width:300px; aspect-ratio:1/1;
+    /* top было 42% — рамка стояла слишком высоко, почти впритык к верхним
+       кнопкам (особенно после того, как добавилась кнопка галереи и вырос
+       верхний отступ топбара); опущена до 47%, ближе к центру, по просьбе
+       "опустить верхнюю рамку вниз, чтобы нормально смотрелась". */
+    position:absolute; top:47%; left:50%; width:72%; max-width:300px; aspect-ratio:1/1;
     transform:translate(-50%,-50%); border-radius:22px; pointer-events:none;
     box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 3px rgba(255,255,255,.55);
     transition: box-shadow .18s ease;
@@ -352,24 +408,78 @@
   .viewfinder.vf-err .vf-status-chip::before { content:"✕ Не подходит"; }
   .viewfinder.vf-detect .vf-status-chip { opacity:1; background:#f5a623; box-shadow:0 4px 12px rgba(245,166,35,.4); }
   .viewfinder.vf-detect .vf-status-chip::before { content:"🔎 Фокусируюсь…"; }
+  /* .vf-lock — маленькая "бегущая" рамка ВНУТРИ общей рамки-видоискателя,
+     которая приближённо показывает, ГДЕ именно в кадре сейчас находится
+     похожий на код узор (см. processDetectionFrame/updateLockBox в JS) —
+     как у нативной камеры телефона (сама рамка "находит" код и подстраивается
+     под него). Это НЕ точная локализация контура кода — в браузере нет
+     такого API, — а грубая оценка по той же эвристике резких переходов
+     яркости, посчитанная не одним числом на весь кадр, а по блокам, чтобы
+     найти именно ту область, где переходов больше всего. Бирюзовый цвет —
+     отдельно от белой/зелёной/красной/жёлтой рамки, чтобы не путать с
+     результатом сканирования (тот же акцент, что у кнопки "Сканер"). */
+  .vf-lock {
+    position:absolute; border:2px solid #22d3ee; border-radius:6px; pointer-events:none;
+    box-shadow:0 0 10px 1px rgba(34,211,238,.6), inset 0 0 8px rgba(34,211,238,.25);
+    opacity:0; transform:scale(.9);
+    transition: left .12s ease-out, top .12s ease-out, width .12s ease-out, height .12s ease-out, opacity .15s ease, transform .15s ease;
+  }
+  .vf-lock.show { opacity:1; transform:scale(1); }
+  .vf-lock::before, .vf-lock::after {
+    content:""; position:absolute; width:10px; height:10px; border:2px solid #22d3ee;
+  }
+  .vf-lock::before { top:-2px; left:-2px; border-right:none; border-bottom:none; }
+  .vf-lock::after { bottom:-2px; right:-2px; border-left:none; border-top:none; }
+  /* Тонкая бегущая линия-скан внутри рамки в обычном режиме — чисто
+     декоративный "технологичный" штрих (как у сканеров штрих-кодов),
+     не мешает распознаванию (pointer-events:none) и гасится в состояниях
+     ok/err/detect, чтобы не спорить с их подсветкой. */
+  .vf-scanline {
+    position:absolute; left:8%; right:8%; top:0; height:2px; border-radius:2px;
+    background:linear-gradient(90deg, transparent, #22d3ee, transparent);
+    box-shadow:0 0 8px 1px rgba(34,211,238,.7);
+    opacity:.85; animation: vfScanSweep 2.4s cubic-bezier(.4,0,.6,1) infinite;
+  }
+  .viewfinder.vf-ok .vf-scanline, .viewfinder.vf-err .vf-scanline, .viewfinder.vf-detect .vf-scanline { opacity:0; }
+  @keyframes vfScanSweep {
+    0%   { top:6%; opacity:0; }
+    10%  { opacity:.85; }
+    50%  { top:94%; opacity:.85; }
+    60%  { opacity:0; }
+    100% { top:6%; opacity:0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vf-scanline { animation:none; opacity:0; }
+  }
   .scan-topbar {
     position:absolute; top:0; left:0; right:0; z-index:2; display:flex; align-items:center; justify-content:space-between;
-    padding: max(10px, env(safe-area-inset-top)) 12px 30px; background:linear-gradient(rgba(0,0,0,.6), transparent);
+    /* Отступ сверху увеличен (было max(10px, safe-area)) — кнопки стояли
+       слишком прижато к самому верху экрана/строке статуса, по просьбе
+       "опустить верхнюю рамку вниз, чтобы нормально смотрелась". */
+    padding: max(18px, calc(env(safe-area-inset-top) + 10px)) 12px 30px;
+    background:linear-gradient(rgba(0,0,0,.6), transparent);
     /* Раньше здесь была цветная (под цвет режима) полоска border-bottom —
        убрана по просьбе: визуально путала с чем-то функциональным на экране
        сканирования (казалось частью самого сканера), а не просто декором. */
   }
+  /* Группа иконок-кнопок справа (галерея/звук/фонарик) — раньше все кнопки
+     топбара были раскиданы justify-content:space-between по отдельности, с
+     добавлением кнопки галереи это выглядело слишком разрежённо; теперь
+     справа они сгруппированы, а space-between остаётся только между
+     [✕] / [счётчик] / [группа иконок]. */
+  .scan-topbar-actions { display:flex; align-items:center; gap:8px; }
   .icon-btn {
     width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
     color:#fff; font-size:17px; cursor:pointer; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
     transition: background .15s ease, transform .1s ease;
   }
   .icon-btn:active { transform:scale(.92); background:rgba(255,255,255,.24); }
+  .icon-btn.torch-on { background:rgba(245,166,35,.35); border-color:#f5a623; box-shadow:0 0 10px 1px rgba(245,166,35,.5); }
   .scan-counter-pill {
     color:#fff; font-size:12.5px; font-weight:700; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
     padding:7px 14px; border-radius:20px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
   }
-  .scan-counter-pill b { color:#ffb3a8; }
+  .scan-counter-pill b { color:var(--tech-bright); font-family:var(--mono); }
   /* Раньше высота этой панели ограничивалась max-height:56dvh — на части
      Android-браузеров dvh уменьшается при открытии клавиатуры, из-за чего
      нижняя часть панели (например «Отменить этот скан») обрезалась и
@@ -497,6 +607,41 @@
   }
   .zoom-hint.zh-off { opacity:0; pointer-events:none; }
 
+  /* Ползунок приближения — как в стандартной камере телефона (лупа "−" /
+     ползунок / лупа "+"), по просьбе добавить видимую регулировку зума, а
+     не только жест "щипком" (setupPinchZoom), который не все замечают.
+     Стоит НАД .zoom-hint/.focus-hint (bottom:78px против их 14px/44px) —
+     те снизу — временные подсказки и сами гаснут, слайдер же постоянный,
+     пока зум поддерживается устройством (иначе скрыт — см. setupZoomControls). */
+  .zoom-slider-wrap {
+    position:absolute; left:50%; bottom:78px; transform:translateX(-50%); z-index:2;
+    display:flex; align-items:center; gap:10px;
+    background:rgba(0,0,0,.42); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.18); border-radius:24px; padding:8px 14px;
+    width:min(84%, 300px);
+  }
+  .zoom-slider-wrap.hidden { display:none; }
+  .zoom-btn {
+    width:28px; height:28px; border-radius:50%; flex-shrink:0; padding:0;
+    background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.26); color:#fff;
+    font-size:16px; font-weight:700; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .zoom-btn:active { background:rgba(34,211,238,.35); border-color:var(--tech-bright); }
+  .zoom-range {
+    flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; margin:0;
+    background: linear-gradient(90deg, var(--tech-bright) var(--zoom-pct, 0%), rgba(255,255,255,.28) var(--zoom-pct, 0%));
+    outline:none; cursor:pointer;
+  }
+  .zoom-range::-webkit-slider-thumb {
+    -webkit-appearance:none; appearance:none; width:18px; height:18px; border-radius:50%;
+    background:#fff; border:2px solid var(--tech-bright); box-shadow:0 0 6px rgba(34,211,238,.7); cursor:pointer;
+  }
+  .zoom-range::-moz-range-thumb {
+    width:18px; height:18px; border-radius:50%; background:#fff; border:2px solid var(--tech-bright);
+    box-shadow:0 0 6px rgba(34,211,238,.7); cursor:pointer;
+  }
+  .zoom-range::-moz-range-track { background:transparent; }
+
   .focus-hint {
     position:absolute; left:50%; bottom:44px; transform:translateX(-50%); z-index:2;
     color:#fff; font-size:12.5px; font-weight:600; background:rgba(0,0,0,.45);
@@ -572,6 +717,7 @@
   <div class="login-box">
     <div class="login-logo-row">
       <span class="logo"></span>
+      <span class="login-scan-beam"></span>
       <h1>Вход в систему</h1>
     </div>
     <p class="login-desc">Мобильное приложение для учёта прихода, отгрузки и остатков продукции по складам. Сканируйте штрих-код партии — данные синхронизируются с Google Таблицей.</p>
@@ -628,7 +774,7 @@
           </div>
         </div>
 
-        <button class="btn" id="scanBtn"><span class="scan-btn-ic">📷</span> Сканировать штрих-код</button>
+        <button class="btn" id="scanBtn"><span class="scan-btn-ic">📷</span> Сканер</button>
         <div class="hint">Открывает камеру во весь экран для чтения штрих-кода этикетки. Можно отсканировать сразу несколько партий подряд.</div>
 
         <button type="button" class="btn secondary small" id="toggleManualBtn" style="margin-top:10px; width:100%;">✍️ Ввести код вручную</button>
@@ -859,6 +1005,8 @@
     <div class="viewfinder" id="viewfinder">
       <span class="corner tl"></span><span class="corner tr"></span>
       <span class="corner bl"></span><span class="corner br"></span>
+      <span class="vf-scanline"></span>
+      <div class="vf-lock" id="vfLock"></div>
       <span class="vf-status-chip"></span>
     </div>
     <div class="zoom-hint zh-off" id="zoomHint">🤏 Разведите пальцы на экране, чтобы приблизить</div>
@@ -866,9 +1014,19 @@
     <div class="scan-topbar">
       <button class="icon-btn" id="scanCloseBtn" aria-label="Закрыть">✕</button>
       <div class="scan-counter-pill">Отсканировано: <b id="scanCounter">0</b></div>
-      <button class="icon-btn" id="scanSoundBtn" aria-label="Звук при сканировании">🔊</button>
-      <button class="icon-btn hidden" id="scanTorchBtn" aria-label="Фонарик">🔦</button>
+      <div class="scan-topbar-actions">
+        <button class="icon-btn" id="scanGalleryBtn" aria-label="Выбрать фото из галереи">🖼️</button>
+        <button class="icon-btn" id="scanSoundBtn" aria-label="Звук при сканировании">🔊</button>
+        <button class="icon-btn hidden" id="scanTorchBtn" aria-label="Фонарик">🔦</button>
+      </div>
     </div>
+    <div class="zoom-slider-wrap hidden" id="zoomSliderWrap">
+      <button type="button" class="zoom-btn" id="zoomOutBtn" aria-label="Уменьшить приближение">−</button>
+      <input type="range" class="zoom-range" id="zoomSlider" min="0" max="1" step="0.01" value="0" aria-label="Приближение камеры" />
+      <button type="button" class="zoom-btn" id="zoomInBtn" aria-label="Увеличить приближение">+</button>
+    </div>
+    <input type="file" id="scanFileInput" accept="image/*" style="display:none" />
+    <div id="fileScanReader" style="position:fixed; width:0; height:0; overflow:hidden; opacity:0; pointer-events:none;"></div>
   </div>
   <div class="scan-sheet">
     <div class="scan-mode-label" id="scanModeLabel"></div>
@@ -2106,6 +2264,54 @@ document.getElementById("scanSoundBtn").onclick = () => {
   if (scanSoundOn) playBeep(); // короткий сигнал сразу — понятно, что звук теперь включён
 };
 updateScanSoundBtn();
+
+// ---------- сканирование кода с фото из галереи ----------
+// По просьбе: не только живая камера, но и выбор готового фото (например,
+// если код сфотографировали заранее, или камера на конкретном телефоне
+// плохо фокусируется). Работает через ОТДЕЛЬНЫЙ экземпляр Html5Qrcode,
+// привязанный к своему (скрытому) контейнеру #fileScanReader — намеренно
+// не тот же html5QrCode, что держит открытый поток живой камеры, чтобы
+// разбор фото никак не мешал/не конфликтовал с уже идущим сканированием.
+let fileScanner = null;
+function getFileScanner() {
+  if (fileScanner) return fileScanner;
+  try {
+    fileScanner = new Html5Qrcode("fileScanReader", {
+      formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.QR_CODE],
+      verbose: false
+    });
+  } catch (e) {
+    // Старая версия библиотеки может не понимать конфиг-объект вторым
+    // аргументом — пробуем совсем без него, тоже сработает, просто без
+    // ограничения списка форматов (не критично).
+    try { fileScanner = new Html5Qrcode("fileScanReader"); } catch (e2) { fileScanner = null; }
+  }
+  return fileScanner;
+}
+document.getElementById("scanGalleryBtn").onclick = () => {
+  document.getElementById("scanFileInput").click();
+};
+document.getElementById("scanFileInput").onchange = async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = ""; // сброс — иначе повторный выбор ТОГО ЖЕ файла не вызовет change второй раз
+  if (!file) return;
+  const scanner = getFileScanner();
+  const hint = document.getElementById("scanHintText");
+  if (!scanner) {
+    flashReject("✕ Сканирование из фото недоступно на этом устройстве");
+    return;
+  }
+  if (hint) { hint.classList.remove("warn-flash"); hint.textContent = "⏳ Читаю фото…"; }
+  try {
+    const decodedText = await scanner.scanFile(file, false);
+    // Дальше — та же самая обработка, что и для кадра с живой камеры:
+    // расшифровка/разбор формата/проверка по справочнику СКЮ и т.д.
+    onScanDecoded(decodedText);
+  } catch (err) {
+    flashReject("✕ На этом фото код не найден");
+  }
+};
+
 document.getElementById("qeCancelBtn").onclick = closeQuickEntry;
 document.getElementById("scanCheckOkBtn").onclick = closeQuickEntry;
 document.getElementById("qeAddBtn").onclick = confirmQuickEntry;
@@ -2242,15 +2448,22 @@ function openScanner() {
   //   без потери работоспособности;
   // - disableFlip отключает лишнюю попытку распознать зеркально отражённый кадр
   //   (не нужна при обычном сканировании с задней камеры) — экономит время на кадр;
-  // - videoConstraints просит у камеры 720p (HD), а не 1080p/4K — это ровно то
-  //   разрешение, которое используют профессиональные SDK сканирования штрихкодов
-  //   (ML Kit, ZXing и т.п.): для чтения штрихкода нужна резкость и контраст
-  //   краёв полос, а не мегапиксели. На слабых/бюджетных телефонах (а в цехах и
-  //   на складах именно такие) более высокое разрешение — это больше работы для
-  //   процессора камеры на каждый кадр: медленнее сходится автофокус/экспозиция,
-  //   ниже реальный fps потока — и ощущается это как раз как "навёл — и долго
-  //   думает". 720p+обрезка ровно по рамке-видоискателю (ниже) + зум щипком при
-  //   необходимости дают достаточно детализации, но заметно быстрее сходятся;
+  // - videoConstraints просит у камеры 1080p (Full HD), а не 720p, как раньше —
+  //   по просьбе сканировать чётко и с большего расстояния: код на этикетке
+  //   издалека занимает лишь небольшую часть кадра, и при 720p ему может
+  //   элементарно не хватать пикселей, чтобы полосы/модули QR различились
+  //   резко (декодер получает "кашу" вместо чётких границ). Раньше это было
+  //   намеренно снижено до 720p ради скорости на слабых телефонах — но с тех
+  //   пор сканирование переведено на нативный BarcodeDetector с обрезкой
+  //   кадра РОВНО по рамке-видоискателю ДО распознавания (см. startNativeScanLoop
+  //   ниже) — а значит на сам процесс распознавания разрешение потока почти
+  //   не влияет (детектору всё равно отдаётся маленький обрезанный кусок, не
+  //   полный кадр), зато более высокое разрешение даёт больше пикселей именно
+  //   В этом обрезанном кусочке — то есть резче и различимее именно далёкий,
+  //   мелкий код. Для устройств без нативного детектора (JS-декодер html5-qrcode)
+  //   это чуть больше нагрузки на кадр, но выигрыш в дальности сканирования
+  //   важнее — на складском Android с Chrome (для которого это в первую
+  //   очередь и настроено) нативный путь работает почти всегда;
   // Если браузер поддерживает нативный BarcodeDetector (Chrome/Android) — не
   // отдаём кадры на распознавание через html5-qrcode (это медленнее и не даёт
   // точно обрезать зону сканирования), а запускаем свой цикл ниже
@@ -2282,8 +2495,8 @@ function openScanner() {
       videoConstraints: {
         facingMode: "environment",
         frameRate: { ideal: 30, max: 30 },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
       }
     },
     (text) => { if (!nativeScanActive) onScanDecoded(text); },
@@ -2292,7 +2505,7 @@ function openScanner() {
     setupTorchButton();
     setupFocusMode();
     setupTapToFocus();
-    setupPinchZoom();
+    setupZoomControls();
     const usingNative = await startNativeScanLoop();
     if (usingNative) {
       try { html5QrCode.pause(false); } catch (e) { /* pause недоступен в этой версии библиотеки — не критично, просто не экономим CPU */ }
@@ -2305,7 +2518,13 @@ function openScanner() {
       startDetectionAssistLoop();
     }
   }).catch(err => {
-    document.getElementById("scanHintText").textContent = "Камера недоступна: " + err;
+    // Камера может быть недоступна по многим причинам, не зависящим от этого
+    // сайта (запрещён доступ в браузере, старое устройство, не HTTPS и т.п.).
+    // Кнопка галереи (🖼️ в шапке сканера) при этом всё равно работает —
+    // подсказываем именно её как рабочий запасной вариант "с любого телефона",
+    // а не просто показываем сухую ошибку.
+    document.getElementById("scanHintText").textContent =
+      "Камера недоступна (" + err + "). Разрешите доступ к камере в браузере, либо нажмите 🖼️ выше и выберите готовое фото с кодом.";
   });
 }
 
@@ -2423,19 +2642,32 @@ function stopNativeScanLoop() {
 function setupTorchButton() {
   // Фонарик — необязательная функция; если браузер/устройство её не поддерживает,
   // просто скрываем кнопку и не мешаем основному сканированию.
+  //
+  // РАНЬШЕ здесь проверялась поддержка через собственную обёртку html5-qrcode
+  // (getRunningTrackCameraCapabilities().torchFeature()) — на части
+  // устройств/версий библиотеки эта обёртка ошибочно считала фонарик
+  // неподдерживаемым, хотя камера торч поддерживает (кнопка "пропадала").
+  // Теперь — как и автофокус/зум (см. setupFocusMode/setupPinchZoom) — читаем
+  // ВОЗМОЖНОСТИ НАПРЯМУЮ у сырого видео-трека через getActiveVideoTrack(),
+  // это тот же самый стандартный Web API (MediaStreamTrack.getCapabilities().torch),
+  // без прослойки библиотеки — надёжнее и работает одинаково с остальными
+  // функциями камеры в этом файле.
   const torchBtn = document.getElementById("scanTorchBtn");
   torchBtn.classList.add("hidden");
   try {
-    const track = html5QrCode && html5QrCode.getRunningTrackCameraCapabilities
-      ? html5QrCode.getRunningTrackCameraCapabilities() : null;
-    if (track && track.torchFeature && track.torchFeature().isSupported && track.torchFeature().isSupported()) {
-      let on = false;
-      torchBtn.classList.remove("hidden");
-      torchBtn.onclick = () => {
-        on = !on;
-        try { track.torchFeature().apply(on); } catch (e) {}
-      };
-    }
+    const track = getActiveVideoTrack();
+    if (!track || !track.getCapabilities) return;
+    const caps = track.getCapabilities();
+    if (!caps.torch) return;
+    let on = false;
+    torchBtn.classList.remove("hidden");
+    torchBtn.textContent = "🔦";
+    torchBtn.onclick = () => {
+      on = !on;
+      track.applyConstraints({ advanced: [{ torch: on }] }).then(() => {
+        torchBtn.classList.toggle("torch-on", on);
+      }).catch(() => {});
+    };
   } catch (e) { /* фонарик недоступен — не критично */ }
 }
 
@@ -2594,10 +2826,58 @@ function setupPinchZoom() {
     let z = pinchStartZoom * ratio;
     z = Math.max(caps.zoom.min, Math.min(caps.zoom.max, z));
     track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+    if (wrap._syncZoomSlider) wrap._syncZoomSlider(z); // держим ползунок синхронным с щипком
   }, { passive: true });
   wrap.addEventListener("touchend", (e) => {
     if (e.touches.length < 2) pinchStartDist = null;
   }, { passive: true });
+}
+
+// ---------- ползунок приближения (видимая регулировка, как у камеры телефона) ----------
+// По просьбе — не только жест "щипком" (setupPinchZoom выше, многие его не
+// замечают), но и видимый ползунок "− ⎯●⎯ +" внизу экрана сканера, как в
+// стандартной камере. Значение ползунка — доля 0..1 между caps.zoom.min и
+// caps.zoom.max (а не сам зум напрямую), чтобы HTML не зависел от конкретных
+// значений min/max/step, которые у каждой камеры свои.
+function setupZoomControls() {
+  setupPinchZoom(); // жест щипком остаётся как есть, независимо от слайдера
+  const wrap = document.querySelector(".scan-video-wrap");
+  const sliderWrap = document.getElementById("zoomSliderWrap");
+  const slider = document.getElementById("zoomSlider");
+  const outBtn = document.getElementById("zoomOutBtn");
+  const inBtn = document.getElementById("zoomInBtn");
+  if (!wrap || !sliderWrap || !slider || !outBtn || !inBtn) return;
+  let track = null, caps = null;
+  try {
+    track = getActiveVideoTrack();
+    caps = track && track.getCapabilities ? track.getCapabilities() : null;
+  } catch (e) { track = null; caps = null; }
+  if (!caps || !caps.zoom || caps.zoom.min === caps.zoom.max) {
+    sliderWrap.classList.add("hidden");
+    return;
+  }
+  sliderWrap.classList.remove("hidden");
+  const min = caps.zoom.min, max = caps.zoom.max;
+  const toFrac = (z) => (max > min ? (z - min) / (max - min) : 0);
+  const setUi = (frac) => {
+    slider.value = frac;
+    slider.style.setProperty("--zoom-pct", (frac * 100) + "%");
+  };
+  const applyFrac = (frac) => {
+    frac = Math.max(0, Math.min(1, frac));
+    const z = min + frac * (max - min);
+    track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+    setUi(frac);
+  };
+  const settings = track.getSettings ? track.getSettings() : {};
+  setUi(toFrac(settings.zoom || min));
+  slider.oninput = () => applyFrac(parseFloat(slider.value));
+  outBtn.onclick = () => applyFrac(parseFloat(slider.value) - 0.12);
+  inBtn.onclick = () => applyFrac(parseFloat(slider.value) + 0.12);
+  // Вызывается из touchmove щипка (см. setupPinchZoom) — чтобы ползунок
+  // визуально "ехал" вместе с реальным зумом, даже когда его двигают щипком,
+  // а не самим слайдером.
+  wrap._syncZoomSlider = (z) => setUi(toFrac(z));
 }
 
 // Распознавание камерой — скорость и точная область настроены в openScanner()
@@ -2754,8 +3034,13 @@ const DETECT_STREAK_OFF = 3;         // столько подряд "пусто"
 const DETECT_SCORE_THRESHOLD = 0.16; // доля резких переходов, начиная с которой считаем "похоже на код"
 const FOCUS_NUDGE_COOLDOWN_MS = 1500;
 
-function scoreCodeLikeness(sourceCanvas) {
-  if (!sourceCanvas || !sourceCanvas.width || !sourceCanvas.height) return 0;
+// Готовит маленькую (DETECT_GRID×DETECT_GRID) чёрно-белую "уменьшенную
+// копию" кадра — общая основа и для общего счёта "похоже на код" (score),
+// и для поиска ПРИМЕРНОГО места в кадре, где узор гуще всего (box, см.
+// scoreAndLocate ниже) — одна и та же уменьшенная картинка используется для
+// обоих, чтобы не делать вдвое больше работы на каждый кадр.
+function computeGrayGrid(sourceCanvas) {
+  if (!sourceCanvas || !sourceCanvas.width || !sourceCanvas.height) return null;
   if (!detectAnalysisCanvas) {
     detectAnalysisCanvas = document.createElement("canvas");
     detectAnalysisCanvas.width = DETECT_GRID;
@@ -2771,26 +3056,78 @@ function scoreCodeLikeness(sourceCanvas) {
       const o = i * 4;
       gray[i] = (data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114) | 0;
     }
-    // Считаем резкие переходы яркости и по строкам, и по столбцам — штрих-код
-    // даёт их в основном по одной оси, QR — по обеим, так надёжнее для обоих.
-    let transitions = 0, total = 0;
-    const TH = 28;
-    for (let y = 0; y < DETECT_GRID; y++) {
-      for (let x = 1; x < DETECT_GRID; x++) {
-        if (Math.abs(gray[y * DETECT_GRID + x - 1] - gray[y * DETECT_GRID + x]) > TH) transitions++;
-        total++;
-      }
-    }
-    for (let x = 0; x < DETECT_GRID; x++) {
-      for (let y = 1; y < DETECT_GRID; y++) {
-        if (Math.abs(gray[(y - 1) * DETECT_GRID + x] - gray[y * DETECT_GRID + x]) > TH) transitions++;
-        total++;
-      }
-    }
-    return total ? transitions / total : 0;
+    return gray;
   } catch (e) {
-    return 0; // кадр не читается (кросс-доменные пиксели и т.п.) — просто не подсказываем в этот раз
+    return null; // кадр не читается (камера не готова и т.п.) — пропускаем этот кадр
   }
+}
+
+// Считает резкие переходы яркости (и по строкам, и по столбцам — штрих-код
+// даёт их в основном по одной оси, QR — по обеим, так надёжнее для обоих) —
+// это и общий "счёт" похожести на код (score, доля резких переходов из всех
+// проверенных пар соседних пикселей), и — раскладывая те же переходы по
+// более крупным блокам сетки — ГРУБАЯ оценка ОБЛАСТИ (box), где переходов
+// особенно много: именно её и подсвечивает бегущая рамка .vf-lock. Настоящей
+// локализации контура кода (как у нативных SDK) в браузере нет — это лишь
+// дешёвая эвристика "где гуще всего чёрно-белый узор", но для подсказки
+// автофокусу и для визуального "рамка нашла код" эффекта этого достаточно.
+const DETECT_BLOCK = 4;                                        // размер блока в пикселях уменьшенной сетки
+const DETECT_BLOCKS_PER_SIDE = Math.floor(DETECT_GRID / DETECT_BLOCK); // 28/4 = 7×7 блоков
+const DETECT_BLOCK_HOT_MIN = 6;   // минимум резких переходов в блоке, чтобы считать его "горячим"
+const DETECT_HOT_BLOCKS_MIN = 2;  // минимум "горячих" блоков, чтобы вообще показывать рамку-локатор
+function scoreAndLocate(gray) {
+  const blockEdge = new Array(DETECT_BLOCKS_PER_SIDE * DETECT_BLOCKS_PER_SIDE).fill(0);
+  let transitions = 0, total = 0;
+  const TH = 28;
+  const addEdge = (x, y) => {
+    const bx = Math.min(DETECT_BLOCKS_PER_SIDE - 1, (x / DETECT_BLOCK) | 0);
+    const by = Math.min(DETECT_BLOCKS_PER_SIDE - 1, (y / DETECT_BLOCK) | 0);
+    blockEdge[by * DETECT_BLOCKS_PER_SIDE + bx]++;
+  };
+  for (let y = 0; y < DETECT_GRID; y++) {
+    for (let x = 1; x < DETECT_GRID; x++) {
+      if (Math.abs(gray[y * DETECT_GRID + x - 1] - gray[y * DETECT_GRID + x]) > TH) { transitions++; addEdge(x, y); }
+      total++;
+    }
+  }
+  for (let x = 0; x < DETECT_GRID; x++) {
+    for (let y = 1; y < DETECT_GRID; y++) {
+      if (Math.abs(gray[(y - 1) * DETECT_GRID + x] - gray[y * DETECT_GRID + x]) > TH) { transitions++; addEdge(x, y); }
+      total++;
+    }
+  }
+  const score = total ? transitions / total : 0;
+
+  let minBx = null, maxBx = null, minBy = null, maxBy = null, hotCount = 0;
+  for (let by = 0; by < DETECT_BLOCKS_PER_SIDE; by++) {
+    for (let bx = 0; bx < DETECT_BLOCKS_PER_SIDE; bx++) {
+      if (blockEdge[by * DETECT_BLOCKS_PER_SIDE + bx] >= DETECT_BLOCK_HOT_MIN) {
+        hotCount++;
+        if (minBx === null || bx < minBx) minBx = bx;
+        if (maxBx === null || bx > maxBx) maxBx = bx;
+        if (minBy === null || by < minBy) minBy = by;
+        if (maxBy === null || by > maxBy) maxBy = by;
+      }
+    }
+  }
+  let box = null;
+  if (hotCount >= DETECT_HOT_BLOCKS_MIN && minBx !== null) {
+    // +1 блок отступа по краям — чтобы рамка не обрезала код впритык.
+    const bx0 = Math.max(0, minBx - 1), bx1 = Math.min(DETECT_BLOCKS_PER_SIDE - 1, maxBx + 1);
+    const by0 = Math.max(0, minBy - 1), by1 = Math.min(DETECT_BLOCKS_PER_SIDE - 1, maxBy + 1);
+    box = {
+      left: bx0 / DETECT_BLOCKS_PER_SIDE, top: by0 / DETECT_BLOCKS_PER_SIDE,
+      width: (bx1 - bx0 + 1) / DETECT_BLOCKS_PER_SIDE, height: (by1 - by0 + 1) / DETECT_BLOCKS_PER_SIDE
+    };
+  }
+  return { score, box };
+}
+
+// Сохранён отдельно (тонкая обёртка) — используется, где нужен только счёт,
+// без поиска области (сейчас — только в тестах/диагностике).
+function scoreCodeLikeness(sourceCanvas) {
+  const gray = computeGrayGrid(sourceCanvas);
+  return gray ? scoreAndLocate(gray).score : 0;
 }
 
 function setViewfinderDetect(on) {
@@ -2802,18 +3139,40 @@ function setViewfinderDetect(on) {
   vf.classList.toggle("vf-detect", on);
 }
 
+// Двигает/показывает маленькую бирюзовую рамку-локатор (.vf-lock) точно на
+// найденную область (в долях ширины/высоты общей рамки — box.left/top/width/
+// height уже в диапазоне 0..1, т.к. анализ идёт по кадру, обрезанному РОВНО
+// под общую рамку-видоискатель — см. computeViewfinderCropRect). box === null
+// — область не найдена (или сканер закрыт/заблокирован) — рамка прячется.
+function updateLockBox(box) {
+  const lock = document.getElementById("vfLock");
+  if (!lock) return;
+  if (!box) { lock.classList.remove("show"); return; }
+  lock.style.left = (box.left * 100) + "%";
+  lock.style.top = (box.top * 100) + "%";
+  lock.style.width = (box.width * 100) + "%";
+  lock.style.height = (box.height * 100) + "%";
+  lock.classList.add("show");
+}
+
 function resetDetectionState() {
   detectOnStreak = 0; detectOffStreak = 0;
   if (detectActive) { detectActive = false; setViewfinderDetect(false); }
+  updateLockBox(null);
 }
 
 // Толчок автофокуса прямо сейчас, а не по общему таймеру (см. setupFocusMode
 // выше) — переключаем focusMode на "single-shot" и сразу обратно на
 // "continuous" одним приёмом (экспозицию/баланс белого передаём в том же
 // вызове, чтобы не сбрасывать их и не "мигать" яркостью — тот же приём, что
-// и в setupFocusMode/setupTapToFocus). Если у устройства нет ни того, ни
-// другого фокуса — просто ничего не делаем, подсветка всё равно работает.
-function nudgeFocusOnDetection() {
+// и в setupFocusMode/setupTapToFocus). Если устройство при этом поддерживает
+// pointsOfInterest (редкая возможность, в основном часть Android/Chrome) —
+// дополнительно указываем камере ТОЧКУ в кадре, где реально нашёлся
+// код-подобный узор (центр box), а не просто центр рамки — так автофокус
+// быстрее "цепляется" именно за код. Если у устройства нет ни single-shot,
+// ни pointsOfInterest — просто ничего не делаем, подсветка всё равно
+// работает сама по себе.
+function nudgeFocusOnDetection(box) {
   const now = Date.now();
   if (now - lastFocusNudgeAt < FOCUS_NUDGE_COOLDOWN_MS) return;
   lastFocusNudgeAt = now;
@@ -2821,17 +3180,23 @@ function nudgeFocusOnDetection() {
     const track = getActiveVideoTrack();
     if (!track || !track.getCapabilities) return;
     const caps = track.getCapabilities();
-    if (!caps.focusMode || !caps.focusMode.includes("single-shot")) return;
     const base = {};
     if (caps.exposureMode && caps.exposureMode.includes("continuous")) base.exposureMode = "continuous";
     if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes("continuous")) base.whiteBalanceMode = "continuous";
-    track.applyConstraints({ advanced: [{ ...base, focusMode: "single-shot" }] }).then(() => {
-      if (caps.focusMode.includes("continuous")) {
-        setTimeout(() => {
-          track.applyConstraints({ advanced: [{ ...base, focusMode: "continuous" }] }).catch(() => {});
-        }, 380);
-      }
-    }).catch(() => {});
+    if (caps.pointsOfInterest && box) {
+      base.pointsOfInterest = [{ x: box.left + box.width / 2, y: box.top + box.height / 2 }];
+    }
+    if (caps.focusMode && caps.focusMode.includes("single-shot")) {
+      track.applyConstraints({ advanced: [{ ...base, focusMode: "single-shot" }] }).then(() => {
+        if (caps.focusMode.includes("continuous")) {
+          setTimeout(() => {
+            track.applyConstraints({ advanced: [{ ...base, focusMode: "continuous" }] }).catch(() => {});
+          }, 380);
+        }
+      }).catch(() => {});
+    } else if (base.pointsOfInterest) {
+      track.applyConstraints({ advanced: [base] }).catch(() => {});
+    }
   } catch (e) { /* нет доступа к автофокусу — не критично */ }
 }
 
@@ -2839,15 +3204,20 @@ function nudgeFocusOnDetection() {
 // startNativeScanLoop, и из запасного startDetectionAssistLoop ниже) с уже
 // обрезанным ровно по рамке-видоискателю канвасом. Дебаунс на несколько
 // кадров в обе стороны — чтобы случайный шум одного кадра не мигал рамкой.
+// Рамка-локатор (.vf-lock) двигается независимо от дебаунса подсветки —
+// ей не нужна такая же инерция, она просто "следует" за текущей оценкой.
 function processDetectionFrame(sourceCanvas) {
   if (scanLocked) { resetDetectionState(); return; }
-  const score = scoreCodeLikeness(sourceCanvas);
+  const gray = computeGrayGrid(sourceCanvas);
+  if (!gray) return;
+  const { score, box } = scoreAndLocate(gray);
+  updateLockBox(box);
   if (score >= DETECT_SCORE_THRESHOLD) {
     detectOnStreak++; detectOffStreak = 0;
     if (!detectActive && detectOnStreak >= DETECT_STREAK_ON) {
       detectActive = true;
       setViewfinderDetect(true);
-      nudgeFocusOnDetection();
+      nudgeFocusOnDetection(box);
     }
   } else {
     detectOffStreak++; detectOnStreak = 0;
