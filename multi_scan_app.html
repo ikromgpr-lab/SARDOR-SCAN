@@ -104,6 +104,17 @@
   .card {
     border:1px solid var(--border); border-radius:var(--radius); padding:16px;
     margin-bottom:12px; background:var(--card); box-shadow: var(--shadow);
+    position:relative;
+  }
+  /* Маленький "HUD"-уголок — тот же приём, что и уголки рамки-сканера
+     (.corner в .viewfinder), только статичный и на каждой карточке во всём
+     приложении (Операции/Остатки/Сводка/Админ и т.д.), а не только в
+     сканере — по просьбе сделать "технологический" стиль заметным везде,
+     не только в самом сканере. */
+  .card::after {
+    content:""; position:absolute; top:9px; right:9px; width:13px; height:13px;
+    border-top:2px solid var(--tech-bright); border-right:2px solid var(--tech-bright);
+    border-radius:0 5px 0 0; opacity:.5; pointer-events:none;
   }
   /* Карточка формы входа — стеклянный ("glass") эффект поверх декоративного
      градиента #loginScreen; затрагивает только .card внутри экрана входа,
@@ -150,7 +161,15 @@
   .status-pill { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11.5px; font-weight:700; }
   .status-ok { background:var(--ok-bg, #e6f4ea); color:var(--ok-text, #1e5b30); }
   .status-bad { background:var(--err-bg, #fdecea); color:var(--err-text, #7a1f14); }
-  label.lbl { font-size:12.5px; color:var(--muted); display:block; margin-top:10px; font-weight:600; }
+  /* Подписи полей — раньше обычный серый текст, теперь моноширинный
+     "системный" стиль (капс + разрядка + бирюзовый цвет вместо серого) —
+     это встречается на КАЖДОЙ форме приложения (Операции/Остатки/Админ и
+     т.д.), поэтому такой стиль сам по себе делает "технологичность" видимой
+     по всему дизайну, не только в сканере. */
+  label.lbl {
+    font-size:11px; color:var(--tech); display:block; margin-top:10px; font-weight:700;
+    font-family:var(--mono); text-transform:uppercase; letter-spacing:.06em;
+  }
   input[type=number], input[type=text], input[type=password], input[type=date], select, textarea {
     width:100%; padding:11px 12px; border-radius:var(--radius-sm); border:1px solid var(--border);
     font-size:15px; margin-top:5px; background:#fff; color:var(--ink); font-family:inherit;
@@ -263,6 +282,25 @@
     background: linear-gradient(135deg, var(--red) 0%, var(--red-dark) 100%);
     border-bottom:none;
     box-shadow: 0 4px 16px rgba(161,13,36,.28);
+    /* position:sticky (выше) уже создаёт контекст позиционирования для
+       ::after ниже — отдельный position:relative не нужен. */
+  }
+  /* "Технологическая" бегущая полоса на нижней кромке шапки — та же идея,
+     что и login-scan-beam на экране входа, только горизонтальная и на
+     каждом экране (шапка видна всегда, sticky) — по просьбе сделать
+     редизайн заметнее по всему приложению, а не только на экране входа. */
+  .topbar::after {
+    content:""; position:absolute; left:0; right:0; bottom:0; height:2px; z-index:1;
+    background:linear-gradient(90deg, transparent, var(--tech-bright), transparent);
+    background-size:46% 100%; background-repeat:no-repeat; background-position:-46% 0;
+    opacity:.8; animation: topbarTrace 3.6s linear infinite;
+  }
+  @keyframes topbarTrace {
+    0%   { background-position:-46% 0; }
+    100% { background-position:146% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .topbar::after { animation:none; opacity:.4; background-position:0 0; background-size:100% 100%; }
   }
   .topbar .logo { width:34px; height:34px; }
   .topbar .who { flex:1; min-width:0; }
@@ -607,18 +645,22 @@
   }
   .zoom-hint.zh-off { opacity:0; pointer-events:none; }
 
-  /* Ползунок приближения — как в стандартной камере телефона (лупа "−" /
-     ползунок / лупа "+"), по просьбе добавить видимую регулировку зума, а
-     не только жест "щипком" (setupPinchZoom), который не все замечают.
-     Стоит НАД .zoom-hint/.focus-hint (bottom:78px против их 14px/44px) —
-     те снизу — временные подсказки и сами гаснут, слайдер же постоянный,
-     пока зум поддерживается устройством (иначе скрыт — см. setupZoomControls). */
+  /* Ползунок приближения — как в стандартной камере телефона, по просьбе
+     добавить видимую регулировку зума, а не только жест "щипком"
+     (setupPinchZoom), который не все замечают. Раньше стоял горизонтально
+     по центру низа экрана и визуально пересекал сам видоискатель/камеру —
+     по просьбе "сделать вертикально, с боку, аккуратно, чтобы не мешала"
+     перенесён на правый край экрана, вертикально, вне области рамки
+     .viewfinder (которая по центру, максимум 300px/40% шириной — справа
+     всегда остаётся свободное поле). column-reverse + порядок кнопок в
+     HTML (−, слайдер, +) дают "+" сверху / "−" снизу — как в привычных
+     вертикальных зум-регуляторах камеры. */
   .zoom-slider-wrap {
-    position:absolute; left:50%; bottom:78px; transform:translateX(-50%); z-index:2;
-    display:flex; align-items:center; gap:10px;
+    position:absolute; right:10px; top:50%; transform:translateY(-50%); z-index:2;
+    display:flex; flex-direction:column-reverse; align-items:center; gap:10px;
     background:rgba(0,0,0,.42); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
-    border:1px solid rgba(255,255,255,.18); border-radius:24px; padding:8px 14px;
-    width:min(84%, 300px);
+    border:1px solid rgba(255,255,255,.18); border-radius:24px; padding:14px 9px;
+    height:min(38vh, 230px); width:auto;
   }
   .zoom-slider-wrap.hidden { display:none; }
   .zoom-btn {
@@ -628,8 +670,15 @@
   }
   .zoom-btn:active { background:rgba(34,211,238,.35); border-color:var(--tech-bright); }
   .zoom-range {
-    flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; margin:0;
-    background: linear-gradient(90deg, var(--tech-bright) var(--zoom-pct, 0%), rgba(255,255,255,.28) var(--zoom-pct, 0%));
+    flex:1; width:4px; border-radius:2px; margin:0; padding:0;
+    /* Вертикальная ориентация: современный способ (writing-mode, Firefox и
+       новый Chrome) + старый -webkit-appearance:slider-vertical как основной
+       рабочий вариант для мобильного Chrome/Android, на который рассчитано
+       приложение — направление снизу-вверх (min внизу, max наверху, под
+       кнопкой "+" сверху). */
+    writing-mode: vertical-lr; direction: rtl;
+    -webkit-appearance: slider-vertical; appearance:none;
+    background: linear-gradient(0deg, var(--tech-bright) var(--zoom-pct, 0%), rgba(255,255,255,.28) var(--zoom-pct, 0%));
     outline:none; cursor:pointer;
   }
   .zoom-range::-webkit-slider-thumb {
@@ -641,6 +690,12 @@
     box-shadow:0 0 6px rgba(34,211,238,.7); cursor:pointer;
   }
   .zoom-range::-moz-range-track { background:transparent; }
+  @media (min-width: 900px) {
+    /* На широком экране камера — левая половина оверлея (см. .scan-video-wrap
+       flex:1 в медиа-запросе ниже), справа достаточно места — просто немного
+       отступаем от края, чтобы не липнуть к границе с панелью ввода. */
+    .zoom-slider-wrap { right:20px; }
+  }
 
   .focus-hint {
     position:absolute; left:50%; bottom:44px; transform:translateX(-50%); z-index:2;
@@ -3028,7 +3083,7 @@ function flashViewfinderError() {
 let detectAnalysisCanvas = null, detectAnalysisCtx = null;
 let detectOnStreak = 0, detectOffStreak = 0, detectActive = false;
 let lastFocusNudgeAt = 0;
-const DETECT_GRID = 28;              // сторона квадрата анализа — маленькая ради скорости
+const DETECT_GRID = 36;              // сторона квадрата анализа (увеличена с 28 — мельче сетка ниже, точнее контур)
 const DETECT_STREAK_ON = 2;          // столько подряд "похоже на код" кадров, чтобы включить подсветку
 const DETECT_STREAK_OFF = 3;         // столько подряд "пусто", чтобы выключить
 const DETECT_SCORE_THRESHOLD = 0.16; // доля резких переходов, начиная с которой считаем "похоже на код"
@@ -3071,18 +3126,20 @@ function computeGrayGrid(sourceCanvas) {
 // локализации контура кода (как у нативных SDK) в браузере нет — это лишь
 // дешёвая эвристика "где гуще всего чёрно-белый узор", но для подсказки
 // автофокусу и для визуального "рамка нашла код" эффекта этого достаточно.
-const DETECT_BLOCK = 4;                                        // размер блока в пикселях уменьшенной сетки
-const DETECT_BLOCKS_PER_SIDE = Math.floor(DETECT_GRID / DETECT_BLOCK); // 28/4 = 7×7 блоков
-const DETECT_BLOCK_HOT_MIN = 6;   // минимум резких переходов в блоке, чтобы считать его "горячим"
-const DETECT_HOT_BLOCKS_MIN = 2;  // минимум "горячих" блоков, чтобы вообще показывать рамку-локатор
+const DETECT_BLOCK = 3;                                        // размер блока в пикселях уменьшенной сетки (было 4 — мельче блок = точнее контур)
+const DETECT_BLOCKS_PER_SIDE = Math.floor(DETECT_GRID / DETECT_BLOCK); // 36/3 = 12×12 блоков (было 7×7)
+const DETECT_BLOCK_HOT_MIN = 5;   // минимум резких переходов в блоке, чтобы считать его "горячим"
+const DETECT_CLUSTER_MIN = 3;     // минимум СВЯЗАННЫХ "горячих" блоков в одном скоплении, чтобы это считалось кодом (не шумом)
+const DETECT_MAX_BOX_FRACTION = 0.8; // если скопление растянуто шире этой доли рамки по ОБЕИМ осям — это, скорее всего, текстура фона (не компактная фигура) — рамку не показываем
 function scoreAndLocate(gray) {
-  const blockEdge = new Array(DETECT_BLOCKS_PER_SIDE * DETECT_BLOCKS_PER_SIDE).fill(0);
+  const N = DETECT_BLOCKS_PER_SIDE;
+  const blockEdge = new Array(N * N).fill(0);
   let transitions = 0, total = 0;
   const TH = 28;
   const addEdge = (x, y) => {
-    const bx = Math.min(DETECT_BLOCKS_PER_SIDE - 1, (x / DETECT_BLOCK) | 0);
-    const by = Math.min(DETECT_BLOCKS_PER_SIDE - 1, (y / DETECT_BLOCK) | 0);
-    blockEdge[by * DETECT_BLOCKS_PER_SIDE + bx]++;
+    const bx = Math.min(N - 1, (x / DETECT_BLOCK) | 0);
+    const by = Math.min(N - 1, (y / DETECT_BLOCK) | 0);
+    blockEdge[by * N + bx]++;
   };
   for (let y = 0; y < DETECT_GRID; y++) {
     for (let x = 1; x < DETECT_GRID; x++) {
@@ -3098,27 +3155,62 @@ function scoreAndLocate(gray) {
   }
   const score = total ? transitions / total : 0;
 
-  let minBx = null, maxBx = null, minBy = null, maxBy = null, hotCount = 0;
-  for (let by = 0; by < DETECT_BLOCKS_PER_SIDE; by++) {
-    for (let bx = 0; bx < DETECT_BLOCKS_PER_SIDE; bx++) {
-      if (blockEdge[by * DETECT_BLOCKS_PER_SIDE + bx] >= DETECT_BLOCK_HOT_MIN) {
-        hotCount++;
-        if (minBx === null || bx < minBx) minBx = bx;
-        if (maxBx === null || bx > maxBx) maxBx = bx;
-        if (minBy === null || by < minBy) minBy = by;
-        if (maxBy === null || by > maxBy) maxBy = by;
+  // "Горячие" блоки — где резких переходов много. Раньше рамка обводила
+  // ПРОСТО общий охват (min/max) всех горячих блоков сразу по всему кадру —
+  // из-за этого пара горячих блоков в разных углах (край руки + край стола,
+  // например) растягивала рамку почти на весь видоискатель. Face-detection
+  // в камерах телефона так не работает — оно находит ОДНО связное пятно
+  // нужной формы. Делаем то же: ищем самое большое СВЯЗНОЕ скопление
+  // соседних горячих блоков (8-связность, как соседние пиксели одной фигуры)
+  // и обводим рамкой только его — так рамка следует именно за формой узора,
+  // а не за суммой всего шума в кадре.
+  const hot = new Uint8Array(N * N);
+  for (let i = 0; i < N * N; i++) hot[i] = blockEdge[i] >= DETECT_BLOCK_HOT_MIN ? 1 : 0;
+
+  const visited = new Uint8Array(N * N);
+  let bestSize = 0, bestMinBx = null, bestMaxBx = null, bestMinBy = null, bestMaxBy = null;
+  const stackX = [], stackY = [];
+  for (let by0 = 0; by0 < N; by0++) {
+    for (let bx0 = 0; bx0 < N; bx0++) {
+      const startIdx = by0 * N + bx0;
+      if (!hot[startIdx] || visited[startIdx]) continue;
+      let size = 0, minBx = bx0, maxBx = bx0, minBy = by0, maxBy = by0;
+      stackX.length = 0; stackY.length = 0;
+      stackX.push(bx0); stackY.push(by0);
+      visited[startIdx] = 1;
+      while (stackX.length) {
+        const cx = stackX.pop(), cy = stackY.pop();
+        size++;
+        if (cx < minBx) minBx = cx; if (cx > maxBx) maxBx = cx;
+        if (cy < minBy) minBy = cy; if (cy > maxBy) maxBy = cy;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const nx = cx + dx, ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+            const nIdx = ny * N + nx;
+            if (hot[nIdx] && !visited[nIdx]) { visited[nIdx] = 1; stackX.push(nx); stackY.push(ny); }
+          }
+        }
       }
+      if (size > bestSize) { bestSize = size; bestMinBx = minBx; bestMaxBx = maxBx; bestMinBy = minBy; bestMaxBy = maxBy; }
     }
   }
+
   let box = null;
-  if (hotCount >= DETECT_HOT_BLOCKS_MIN && minBx !== null) {
-    // +1 блок отступа по краям — чтобы рамка не обрезала код впритык.
-    const bx0 = Math.max(0, minBx - 1), bx1 = Math.min(DETECT_BLOCKS_PER_SIDE - 1, maxBx + 1);
-    const by0 = Math.max(0, minBy - 1), by1 = Math.min(DETECT_BLOCKS_PER_SIDE - 1, maxBy + 1);
-    box = {
-      left: bx0 / DETECT_BLOCKS_PER_SIDE, top: by0 / DETECT_BLOCKS_PER_SIDE,
-      width: (bx1 - bx0 + 1) / DETECT_BLOCKS_PER_SIDE, height: (by1 - by0 + 1) / DETECT_BLOCKS_PER_SIDE
-    };
+  if (bestSize >= DETECT_CLUSTER_MIN && bestMinBx !== null) {
+    const spanBx = (bestMaxBx - bestMinBx + 1) / N, spanBy = (bestMaxBy - bestMinBy + 1) / N;
+    if (!(spanBx >= DETECT_MAX_BOX_FRACTION && spanBy >= DETECT_MAX_BOX_FRACTION)) {
+      // Небольшой отступ (меньше половины блока) — чтобы рамка не резала код
+      // впритык, но оставалась плотной, а не "распухала" на целый блок с
+      // каждой стороны, как раньше.
+      const pad = 0.4 / N;
+      const left = Math.max(0, bestMinBx / N - pad);
+      const top = Math.max(0, bestMinBy / N - pad);
+      const right = Math.min(1, (bestMaxBx + 1) / N + pad);
+      const bottom = Math.min(1, (bestMaxBy + 1) / N + pad);
+      box = { left, top, width: right - left, height: bottom - top };
+    }
   }
   return { score, box };
 }
