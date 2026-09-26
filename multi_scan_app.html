@@ -176,13 +176,19 @@
   .shelf-row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:2px 0; font-size:12px; }
   .shelf-row-label { color:var(--muted); }
   .shelf-row-value { font-weight:700; color:var(--ink); }
-  .shelf-bar-track { height:8px; border-radius:5px; background:rgba(0,0,0,.09); overflow:hidden; margin-top:6px; }
+  /* Три числа в ряд — "Норма" слева, "Прошло" в центре, "Осталось" справа
+     от него (как и попросили). Каждое — подпись сверху, число снизу. */
+  .shelf-stats-row { display:flex; margin-top:8px; padding-top:7px; border-top:1px dashed rgba(0,0,0,.1); }
+  .shelf-stat { flex:1; text-align:center; }
+  .shelf-stat + .shelf-stat { border-left:1px solid rgba(0,0,0,.08); }
+  .shelf-stat-label { display:block; font-size:10.5px; color:var(--muted); margin-bottom:1px; }
+  .shelf-stat-val { display:block; font-size:13px; font-weight:800; color:var(--ok-text); }
+  .shelf-block.shelf-bad .shelf-stat-val { color:var(--err-text); }
+  .shelf-bar-row { display:flex; align-items:center; gap:10px; margin-top:9px; }
+  .shelf-bar-track { flex:1; height:8px; border-radius:5px; background:rgba(0,0,0,.09); overflow:hidden; }
   .shelf-bar-fill { height:100%; border-radius:5px; background:var(--ok-text, #1e5b30); transition:width .35s ease; }
   .shelf-block.shelf-bad .shelf-bar-fill { background:var(--err-text, #7a1f14); }
-  .shelf-block-nums { display:flex; justify-content:space-between; align-items:baseline; margin-top:8px; padding-top:7px; border-top:1px dashed rgba(0,0,0,.1); }
-  .shelf-days { font-size:12.5px; font-weight:700; color:var(--ok-text); }
-  .shelf-block.shelf-bad .shelf-days { color:var(--err-text); }
-  .shelf-pct { font-size:16px; font-weight:800; color:var(--ok-text); }
+  .shelf-pct { flex-shrink:0; font-size:16px; font-weight:800; color:var(--ok-text); }
   .shelf-block.shelf-bad .shelf-pct { color:var(--err-text); }
   /* Подписи полей — раньше обычный серый текст, теперь моноширинный
      "системный" стиль (капс + разрядка + бирюзовый цвет вместо серого) —
@@ -2412,6 +2418,32 @@ function getSkuName(code) {
 function warehouseKindClient(name) {
   return (String(name).trim() === "СГП") ? "sgp" : "region";
 }
+// Прибавляет N месяцев к дате правильно: день должен оставаться тем же
+// (26.09 + 6 мес. = 26.03), меняется только месяц. Отдельного международного
+// стандарта именно для арифметики "дата + N месяцев" нет (ISO 8601 описывает
+// только ФОРМАТ дат/периодов, например P6M, а не правило при переполнении
+// дня) — но повсеместно принятая конвенция (Excel EDATE(), большинство
+// финансовых и юридических расчётов срока годности) именно та, которую и
+// предложили: если в целевом месяце такого числа нет (29-31 января/марта и
+// т.п. упирается в февраль) — берётся ПОСЛЕДНИЙ день целевого месяца, а
+// какой именно это день (28 или 29 февраля) — определяется тем, високосный
+// ли год, через сам JS Date (он это уже умеет правильно, без хардкода "28").
+function addMonthsClamped(date, months) {
+  const day = date.getDate();
+  const target = new Date(date.getFullYear(), date.getMonth() + months, 1);
+  const lastDayOfTargetMonth = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDayOfTargetMonth));
+  return target;
+}
+// Дата в формате ГГГГ-ММ-ДД по ЛОКАЛЬНОМУ времени телефона, без перевода в
+// UTC — в отличие от date.toISOString(), который в часовом поясе Таджикистана
+// (UTC+5) мог сдвинуть дату истечения срока на день назад на экране.
+function localIso(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 function computeShelfStatus(code, prodIsoDate) {
   const info = skuList.find(s => String(s.code).trim().toLowerCase() === String(code).trim().toLowerCase());
   if (!info || !prodIsoDate) return null;
@@ -2433,30 +2465,33 @@ function computeShelfStatus(code, prodIsoDate) {
   const shelfMonths = Number(info.shelfMonths) || 0;
   let expiryIso = null, shelfLifeDays = null, pctShelf = null;
   if (shelfMonths > 0) {
-    const expiry = new Date(prodDate);
-    expiry.setMonth(expiry.getMonth() + shelfMonths);
-    expiryIso = expiry.toISOString().slice(0, 10);
+    const expiry = addMonthsClamped(prodDate, shelfMonths);
+    expiryIso = localIso(expiry);
     shelfLifeDays = Math.round((expiry.getTime() - prodDate.getTime()) / 86400000);
     if (shelfLifeDays > 0) pctShelf = Math.max(0, Math.round((ageDays / shelfLifeDays) * 100));
   }
   return { status, ageDays, limitDay: limit, shelfMonths, expiryIso, shelfLifeDays, pctShelf };
 }
-// Карточка статуса. Порядок, как и попросили: сначала срок годности, потом
-// день производства, потом сколько дней прошло (с нормой страховочного
-// срока слева от него), и в конце — шкала с процентом от срока годности.
+// Карточка статуса. "День производства" внутри убран — эта дата и так есть
+// отдельной строкой сразу под карточкой (карточка теперь показывается ПЕРЕД
+// остальными данными этикетки, см. buildDetailedFields). Три числа —
+// "Норма"/"Прошло"/"Осталось" — в один ряд (норма слева, осталось справа от
+// прошло, как и просили), срок годности показан и в месяцах, и в днях.
 // Цвет подписи/шкалы/чисел — один в один со статусом (зелёный — «Норма»,
 // красный — «Превышен»).
-function shelfStatusBlockHtml(s, prodDisplayDate) {
+function shelfStatusBlockHtml(s) {
   if (!s) return "";
   const isBad = s.status === "Превышен";
   const hasShelf = s.shelfMonths > 0 && s.shelfLifeDays > 0;
-  // Процент и заполнение шкалы — от полного срока годности, когда он известен;
+  // Процент, шкала и "осталось" — от полного срока годности, когда он известен;
   // если в справочнике не заполнен (старые СКЮ без колонки "Срок годности, мес") —
-  // не теряем показатель, а считаем как раньше, от лимита страховочного срока.
+  // не теряем показатели, а считаем как раньше, от лимита страховочного срока.
+  const baseDays = hasShelf ? s.shelfLifeDays : s.limitDay;
   const pct = hasShelf ? s.pctShelf : Math.max(0, Math.round((s.ageDays / s.limitDay) * 100));
   const barWidth = Math.min(pct, 100);
+  const remainingDays = Math.max(0, baseDays - s.ageDays);
   const shelfLine = hasShelf
-    ? `<div class="shelf-row"><span class="shelf-row-label">Срок годности</span><span class="shelf-row-value">${s.shelfMonths} мес. (до ${ddmmyyyy(s.expiryIso)})</span></div>`
+    ? `<div class="shelf-row"><span class="shelf-row-label">Срок годности</span><span class="shelf-row-value">${s.shelfMonths} мес. / ${s.shelfLifeDays} дн. (до ${ddmmyyyy(s.expiryIso)})</span></div>`
     : "";
   return `<div class="shelf-block${isBad ? " shelf-bad" : ""}">
     <div class="shelf-block-top">
@@ -2464,12 +2499,15 @@ function shelfStatusBlockHtml(s, prodDisplayDate) {
       <span class="status-pill ${isBad ? "status-bad" : "status-ok"}">${s.status}</span>
     </div>
     ${shelfLine}
-    <div class="shelf-row"><span class="shelf-row-label">День производства</span><span class="shelf-row-value">${prodDisplayDate}</span></div>
-    <div class="shelf-block-nums">
-      <span class="shelf-days">${s.limitDay} дн. норма&nbsp;→&nbsp;${s.ageDays} дн. прошло</span>
+    <div class="shelf-stats-row">
+      <div class="shelf-stat"><span class="shelf-stat-label">Норма</span><span class="shelf-stat-val">${s.limitDay} дн.</span></div>
+      <div class="shelf-stat"><span class="shelf-stat-label">Прошло</span><span class="shelf-stat-val">${s.ageDays} дн.</span></div>
+      <div class="shelf-stat"><span class="shelf-stat-label">Осталось</span><span class="shelf-stat-val">${remainingDays} дн.</span></div>
+    </div>
+    <div class="shelf-bar-row">
+      <div class="shelf-bar-track"><div class="shelf-bar-fill" style="width:${barWidth}%"></div></div>
       <span class="shelf-pct">${pct}%</span>
     </div>
-    <div class="shelf-bar-track"><div class="shelf-bar-fill" style="width:${barWidth}%"></div></div>
   </div>`;
 }
 // ---------- «Проверка»: полный разбор данных этикетки по строкам ----------
@@ -2535,9 +2573,12 @@ function extractLabeledFields(text) {
 // известны из parseCode/p), остальное — что нашлось в самом тексте этикетки.
 function buildDetailedFields(rawText, p) {
   const rows = [];
-  rows.push({ label: "Дата производства", value: p.displayDate });
-  const shelfHtml = shelfStatusBlockHtml(computeShelfStatus(p.lot, p.isoDate), p.displayDate);
+  // По просьбе карточка статуса страховочного срока идёт ПЕРВОЙ, перед
+  // остальными данными этикетки (включая "Дата производства" — она и так
+  // сразу следующей строкой, поэтому дублировать её внутри карточки не нужно).
+  const shelfHtml = shelfStatusBlockHtml(computeShelfStatus(p.lot, p.isoDate));
   if (shelfHtml) rows.push({ special: true, html: shelfHtml });
+  rows.push({ label: "Дата производства", value: p.displayDate });
   rows.push({ label: "Код товара (SKU)", value: p.lot });
   const name = getSkuName(p.lot);
   if (name) rows.push({ label: "Наименование", value: name });
