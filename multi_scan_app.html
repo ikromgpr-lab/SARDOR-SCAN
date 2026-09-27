@@ -2705,6 +2705,37 @@ updateScanSoundBtn();
 // привязанный к своему (скрытому) контейнеру #fileScanReader — намеренно
 // не тот же html5QrCode, что держит открытый поток живой камеры, чтобы
 // разбор фото никак не мешал/не конфликтовал с уже идущим сканированием.
+// Вспомогательные функции для повторной попытки распознать код на фото в
+// уменьшенном размере (см. комментарий в обработчике scanFileInput.onchange
+// ниже — почему это может понадобиться именно для фото, выбранных на
+// десктопе).
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+}
+function resizeImageToFile(img, maxSide) {
+  return new Promise((resolve) => {
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) { resolve(null); return; }
+    const scale = Math.min(1, maxSide / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * scale));
+    const ch = Math.max(1, Math.round(h * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, cw, ch);
+    canvas.toBlob((blob) => {
+      resolve(blob ? new File([blob], "scan.jpg", { type: "image/jpeg" }) : null);
+    }, "image/jpeg", 0.92);
+  });
+}
+
 let fileScanner = null;
 function getFileScanner() {
   if (fileScanner) return fileScanner;
@@ -2756,7 +2787,34 @@ document.getElementById("scanFileInput").onchange = async (e) => {
   }
   if (hint) { hint.classList.remove("warn-flash"); hint.textContent = "⏳ Читаю фото…"; }
   try {
-    const decodedText = await scanner.scanFile(file, false);
+    let decodedText = null;
+    let lastErr = null;
+    try {
+      decodedText = await scanner.scanFile(file, false);
+    } catch (err1) {
+      lastErr = err1;
+      // Не нашли код на фото "как есть" — по факту (см. ошибку декодера в
+      // консоли, "No MultiFormat Readers were able to detect the code")
+      // это обычно бывает на очень крупных фото (полное разрешение, как
+      // часто отдаёт файловый диалог на десктопе) — код на них занимает
+      // маленькую долю кадра, и JS-декодеру это мешает его найти, хотя сам
+      // код на фото читаемый. Пробуем ещё раз на уменьшенных копиях того же
+      // фото — так декодер видит кадр примерно того же размера, что и
+      // обычное фото с телефона, где всё это уже надёжно работает.
+      try {
+        const img = await loadImageFromFile(file);
+        for (const maxSide of [1600, 1000, 700]) {
+          try {
+            const resized = await resizeImageToFile(img, maxSide);
+            if (!resized) continue;
+            decodedText = await scanner.scanFile(resized, false);
+            lastErr = null;
+            break;
+          } catch (err2) { lastErr = err2; }
+        }
+      } catch (loadErr) { /* не смогли даже загрузить фото как картинку — оставляем исходную ошибку из lastErr */ }
+    }
+    if (decodedText == null) throw (lastErr || new Error("код не найден"));
     // Дальше — та же самая обработка, что и для кадра с живой камеры:
     // расшифровка/разбор формата/проверка по справочнику СКЮ и т.д.
     onScanDecoded(decodedText);
