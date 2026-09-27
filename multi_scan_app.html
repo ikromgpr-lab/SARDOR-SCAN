@@ -778,11 +778,17 @@
      (setupPinchZoom), который не все замечают. Раньше стоял горизонтально
      по центру низа экрана и визуально пересекал сам видоискатель/камеру —
      по просьбе "сделать вертикально, с боку, аккуратно, чтобы не мешала"
-     перенесён на правый край экрана, вертикально, вне области рамки
-     .viewfinder (которая по центру, максимум 300px/40% шириной — справа
-     всегда остаётся свободное поле). column-reverse + порядок кнопок в
-     HTML (−, слайдер, +) дают "+" сверху / "−" снизу — как в привычных
-     вертикальных зум-регуляторах камеры. */
+     перенесён на правый край экрана, вертикально.
+     top/height ниже — только запасной вариант на случай, если JS почему-то
+     не сработает: реальные значения выставляет alignZoomSliderToViewfinder()
+     (см. JS) — верхний и нижний край ползунка ставятся РОВНО по верхнему и
+     нижнему краю рамки .viewfinder (getBoundingClientRect), а не просто по
+     центру экрана — раньше при центрировании по экрану ползунок на части
+     экранов налезал на верхние кнопки (галерея/фонарик/звук) и на счётчик
+     "Отсканировано", потому что сама рамка .viewfinder не всегда стоит по
+     центру экрана (её положение и размер зависят от высоты видео-области).
+     column-reverse + порядок кнопок в HTML (−, слайдер, +) дают "+" сверху /
+     "−" снизу — как в привычных вертикальных зум-регуляторах камеры. */
   .zoom-slider-wrap {
     position:absolute; right:10px; top:50%; transform:translateY(-50%); z-index:2;
     display:flex; flex-direction:column-reverse; align-items:center; gap:10px;
@@ -1617,18 +1623,33 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     clearTimeout(timer);
   }
 }
+// Если у Google Apps Script упадёт сама функция на сервере (например, лист
+// переименовали или там пустая ячейка не там, где ожидалось), он вместо JSON
+// вернёт свою служебную HTML-страницу с ошибкой — res.json() в этом случае
+// упал бы с малопонятным "Unexpected token '<'...". Разбираем ответ через
+// единую функцию ниже, чтобы во всех местах, где результат apiGet/apiPost
+// уже оборачивают в try/catch (а таких мест в файле около 80), сообщение
+// стало понятным по-русски само, без правок в каждом из этих мест.
+async function parseApiResponse(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error("Сервер вернул непонятный ответ (не JSON) — возможно, скрипт временно недоступен или на сервере ошибка. Попробуйте ещё раз через минуту.");
+  }
+}
 async function apiPost(payload) {
   const res = await fetchWithTimeout(SCRIPT_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(payload)
   }, 30000);
-  return res.json();
+  return parseApiResponse(res);
 }
 async function apiGet(params) {
   const url = SCRIPT_URL + "?" + new URLSearchParams(params).toString();
   const res = await fetchWithTimeout(url, {}, 20000);
-  return res.json();
+  return parseApiResponse(res);
 }
 
 async function showMain() {
@@ -2429,6 +2450,11 @@ function getSkuName(code) {
 function warehouseKindClient(name) {
   return (String(name).trim() === "СГП") ? "sgp" : "region";
 }
+// Единая константа статуса "превышен страховочный срок" — раньше строка
+// "Превышен" была вписана буквально в 5 разных местах файла; если бы
+// понадобилось поменять формулировку, легко забыть одно из мест. Теперь
+// меняется только здесь.
+const SHELF_STATUS_EXCEEDED = "Превышен";
 // Прибавляет N месяцев к дате правильно: день должен оставаться тем же
 // (26.09 + 6 мес. = 26.03), меняется только месяц. Отдельного международного
 // стандарта именно для арифметики "дата + N месяцев" нет (ISO 8601 описывает
@@ -2468,7 +2494,7 @@ function computeShelfStatus(code, prodIsoDate) {
   // Норма — ВКЛЮЧИТЕЛЬНО: если норма 25 дн. и прошло ровно 25 дн., это ещё
   // "Норма" (не "Превышен"); превышение начинается только на 26-й день
   // (ageDays > limit), по прямой просьбе именно так считать.
-  const status = ageDays > limit ? "Превышен" : "Норма";
+  const status = ageDays > limit ? SHELF_STATUS_EXCEEDED : "Норма";
 
   // "Срок годности" — ОТДЕЛЬНАЯ величина (колонка "Срок годности, мес" в
   // листе SkuRef), полный срок жизни товара от даты производства. По
@@ -2495,7 +2521,7 @@ function computeShelfStatus(code, prodIsoDate) {
 // красный — «Превышен»).
 function shelfStatusBlockHtml(s) {
   if (!s) return "";
-  const isBad = s.status === "Превышен";
+  const isBad = s.status === SHELF_STATUS_EXCEEDED;
   const hasShelf = s.shelfMonths > 0 && s.shelfLifeDays > 0;
   // Процент, шкала и "осталось" — от полного срока годности, когда он известен;
   // если в справочнике не заполнен (старые СКЮ без колонки "Срок годности, мес") —
@@ -2743,6 +2769,29 @@ document.getElementById("qeAddBtn").onclick = confirmQuickEntry;
 //     реально видимую область экрана (без клавиатуры) — а панель ввода
 //     (.scan-sheet, flex:1 + overflow:auto) забирает всё оставшееся место и
 //     прокручивается сама, так что вся панель всегда доступна.
+// Ставит верхний и нижний край ползунка зума РОВНО по верхнему и нижнему
+// краю рамки-видоискателя .viewfinder (а не просто по центру экрана, как
+// было раньше в CSS) — иначе на части экранов ползунок налезал на верхние
+// кнопки (галерея/фонарик/звук) и счётчик "Отсканировано", потому что сама
+// рамка не всегда стоит по центру видео-области (её top/размер зависят от
+// высоты .scan-video-wrap, см. pinScanOverlayToViewport). Меряем реальное
+// положение через getBoundingClientRect (как и computeViewfinderCropRect
+// ниже) — надёжнее, чем подбирать процентные совпадения на глаз. Если
+// ползунок сейчас скрыт (зум не поддерживается камерой) — просто выходим,
+// ничего не трогаем.
+function alignZoomSliderToViewfinder() {
+  const vf = document.querySelector(".viewfinder");
+  const zw = document.getElementById("zoomSliderWrap");
+  if (!vf || !zw || zw.classList.contains("hidden")) return;
+  const parent = zw.offsetParent;
+  if (!parent) return;
+  const vfRect = vf.getBoundingClientRect();
+  const parentRect = parent.getBoundingClientRect();
+  if (!vfRect.height) return; // рамка ещё не отрисована — не портим CSS-запасной вариант
+  zw.style.top = (vfRect.top - parentRect.top) + "px";
+  zw.style.height = vfRect.height + "px";
+  zw.style.transform = "none";
+}
 let scanViewportCleanup = null;
 function pinScanOverlayToViewport() {
   const overlay = document.getElementById("scanOverlay");
@@ -2758,7 +2807,13 @@ function pinScanOverlayToViewport() {
         // ~42% видимой высоты под камеру (примерно как было раньше при
         // "резиновой" раскладке на обычном экране), но не меньше/больше
         // разумных пределов на очень маленьких/больших экранах.
-        fixedVideoH = Math.max(220, Math.min(420, Math.round(baseH * 0.42)));
+        // Нижний предел был 220 — на телефоне, повёрнутом горизонтально
+        // (ширина <900px, но высота маленькая, например 844×390), это давало
+        // слишком мало места по вертикали: рамка .viewfinder (top:60% от этой
+        // высоты) упиралась в счётчик "Отсканировано" сверху. 320 — минимум,
+        // при котором рамке хватает места с запасом и в такой ориентации тоже
+        // (проверено на нескольких горизонтальных размерах экрана).
+        fixedVideoH = Math.max(320, Math.min(420, Math.round(baseH * 0.42)));
       }
       videoWrap.style.flex = "0 0 auto";
       videoWrap.style.height = fixedVideoH + "px";
@@ -2771,6 +2826,10 @@ function pinScanOverlayToViewport() {
       overlay.style.top = vv.offsetTop + "px";
       overlay.style.left = vv.offsetLeft + "px";
     }
+    // Рамка (и, на широких экранах, video-wrap) уже пересчитаны выше —
+    // подгоняем ползунок зума под её новые границы при каждом изменении
+    // (открытие сканера, resize, поворот экрана).
+    alignZoomSliderToViewfinder();
   };
   const onOrientation = () => { fixedVideoH = null; apply(); };
   apply();
@@ -2781,6 +2840,8 @@ function pinScanOverlayToViewport() {
     window.removeEventListener("orientationchange", onOrientation);
     overlay.style.height = ""; overlay.style.top = ""; overlay.style.left = "";
     videoWrap.style.flex = ""; videoWrap.style.height = "";
+    const zw = document.getElementById("zoomSliderWrap");
+    if (zw) { zw.style.top = ""; zw.style.height = ""; zw.style.transform = ""; }
   };
 }
 
@@ -2883,13 +2944,24 @@ function openScanner() {
   // это удваивает нагрузку на процессор телефона — тоже прямая причина "долго
   // сканирует" на не самых мощных устройствах.
   nativeScanActive = false;
+  // Размер qrbox — РОВНО как у видимой рамки .viewfinder на экране (а не
+  // фиксированные 280×280, как было раньше): qrbox — это зона распознавания
+  // резервного JS-декодера html5-qrcode, который включается на устройствах
+  // без встроенного BarcodeDetector (см. startNativeScanLoop ниже — там, где
+  // детектор есть, кадр и так обрезается ровно по рамке через
+  // computeViewfinderCropRect). Раньше при старом размере рамки (~280px)
+  // числа примерно совпадали случайно; после того как рамку сделали меньше
+  // (см. CSS .viewfinder), с фиксированными 280 резервный декодер стал бы
+  // распознавать код и ЗА пределами видимой рамки — то, что человек не видит
+  // на экране, но что уже физически попало бы в кадр распознавания.
+  const vfBox = document.querySelector(".viewfinder");
+  const vfBoxRect = vfBox ? vfBox.getBoundingClientRect() : null;
+  const qrboxSize = (vfBoxRect && vfBoxRect.width > 0) ? Math.round(vfBoxRect.width) : 220;
   html5QrCode.start(
     { facingMode: "environment" },
     {
       fps: 20,
-      // Квадрат — под QR-код (см. .viewfinder в CSS); раньше здесь был широкий
-      // прямоугольник под старый CODE_128.
-      qrbox: { width: 280, height: 280 },
+      qrbox: { width: qrboxSize, height: qrboxSize },
       disableFlip: true,
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       // Раньше распознавали и CODE_39, и CODE_128 — теперь на складах печатают
@@ -3264,6 +3336,7 @@ function setupZoomControls() {
     return;
   }
   sliderWrap.classList.remove("hidden");
+  alignZoomSliderToViewfinder(); // до этого момента ползунок был скрыт (display:none) — только сейчас можно измерить его реальные границы
   const min = caps.zoom.min, max = caps.zoom.max;
   const toFrac = (z) => (max > min ? (z - min) / (max - min) : 0);
   const setUi = (frac) => {
@@ -4298,7 +4371,7 @@ function renderStockTable(rows, showWarehouseCol, showDateCol) {
   let html = "<div class=\"table-scroll\"><table><tr>" + (showDateCol ? "<th>Дата снимка</th>" : "") + (showWarehouseCol ? "<th>Склад</th>" : "") + "<th>Код СКЮ</th><th>Дата произв.</th><th>Остаток</th><th>Страховочный срок</th></tr>";
   rows.forEach(r => {
     const statusCell = r.status
-      ? `<span class="status-pill ${r.status === "Превышен" ? "status-bad" : "status-ok"}">${r.status}</span>`
+      ? `<span class="status-pill ${r.status === SHELF_STATUS_EXCEEDED ? "status-bad" : "status-ok"}">${r.status}</span>`
       : `<span class="muted">—</span>`;
     html += `<tr title="${(r.skuName || "").replace(/"/g,'&quot;')}">${showDateCol ? "<td>"+r.snapDate.split("-").reverse().join(".")+"</td>" : ""}${showWarehouseCol ? "<td>"+r.warehouse+"</td>" : ""}<td>${r.lot}</td><td>${r.prodDate.split("-").reverse().join(".")}</td><td>${r.qty}</td><td>${statusCell}</td></tr>`;
   });
@@ -4627,7 +4700,7 @@ const debouncedLoadSummary = debounce(loadSummary, 450);
 function ddmmyyyy(iso) { return (iso || "").split("-").reverse().join("."); }
 function statusPill(status) {
   if (!status) return `<span class="muted">—</span>`;
-  return `<span class="status-pill ${status === "Превышен" ? "status-bad" : "status-ok"}">${status}</span>`;
+  return `<span class="status-pill ${status === SHELF_STATUS_EXCEEDED ? "status-bad" : "status-ok"}">${status}</span>`;
 }
 
 // Склад операции определяем так же, как это делает бэкенд при формировании
@@ -4683,7 +4756,7 @@ function renderSummary(r) {
     const users = Array.from(new Set(whItems.map(it => it.user).filter(Boolean)));
     let lastTs = null;
     whItems.forEach(it => { if (it.ts && (!lastTs || new Date(it.ts) > new Date(lastTs))) lastTs = it.ts; });
-    const exceededItems = whItems.filter(it => it.status === "Превышен");
+    const exceededItems = whItems.filter(it => it.status === SHELF_STATUS_EXCEEDED);
     const totalQty = whItems.reduce((s, it) => s + (Number(it.qty) || 0), 0);
     const exceededQty = exceededItems.reduce((s, it) => s + (Number(it.qty) || 0), 0);
     // Колонки "Время"/"Пользователь"/"Операция"/"Откуда"/"Куда"/"Код СКЮ" убраны
