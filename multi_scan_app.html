@@ -1334,6 +1334,20 @@ let shopsList = [];       // список цехов (лист "Shops") — дл
 let skuList = [];         // [{code,name,group}, ...] — справочник СКЮ с сервера
 let skuCodesSet = null;   // Set нормализованных кодов для быстрой проверки при сканировании
 let scanLocked = false;
+// Главный экран (setupModes и т.п.) намеренно рисуется СРАЗУ при входе, не
+// дожидаясь ответа сервера со справочниками (см. showMain ниже) — чтобы
+// "Операции" не выглядели пустыми/пропавшими первую секунду на медленной
+// связи. Из-за этого человек физически МОЖЕТ успеть открыть сканер и
+// отсканировать этикетку ДО того, как skuList вообще загрузился — в этот
+// узкий момент карточка "Страховочный срок" в «Проверке» не может ничего
+// посчитать (skuList ещё пуст), хотя в самой Google Таблице для этого СКЮ
+// всё заполнено — отсюда "то выходит, то нет" без всякой видимой причины.
+// refDataReady/refDataReadyPromise — сигнал "первая загрузка справочников
+// хоть раз завершилась", которым onScanDecoded (см. ниже, ветка verifyOnlyMode)
+// пользуется, чтобы на секунду подождать её, а не тихо промолчать.
+let refDataReady = false;
+let _refDataReadyResolve;
+const refDataReadyPromise = new Promise((res) => { _refDataReadyResolve = res; });
 // Подписи полей этикетки ("Ма" -> "Мастер" и т.п.) и расшифровка конкретных
 // значений ("Смена: 1" -> "День") — теперь редактируются в Google Таблице,
 // лист "FieldLabels" (см. серверный getFieldLabels()), а не только в коде.
@@ -1756,6 +1770,11 @@ async function showMain() {
   fieldLabelOverrides = fieldLabelsRes.status === "fulfilled" ? (fieldLabelsRes.value.labels || {}) : ((cache && cache.fieldLabels) || {});
   fieldValueDecodeMap = fieldLabelsRes.status === "fulfilled" ? (fieldLabelsRes.value.valueLabels || {}) : ((cache && cache.fieldValueLabels) || {});
   saveRefDataCache(); // обновляем кэш свежими данными (а если офлайн — молча пересохраняем то же самое, без вреда)
+  // skuList/skuCodesSet выше уже присвоены (хоть с сервера, хоть из офлайн-
+  // кэша) — с этого момента можно безопасно считать карточку "Страховочный
+  // срок" в «Проверке» (см. refDataReady/refDataReadyPromise выше и их
+  // использование в onScanDecoded).
+  if (!refDataReady) { refDataReady = true; _refDataReadyResolve(); }
   if (anyOffline) {
     if (cache) {
       showFloatingToast("📡 Нет связи — используются сохранённые ранее склады/СКЮ", "warn");
@@ -4106,7 +4125,7 @@ function stopDetectionAssistLoop() {
   resetDetectionState();
 }
 
-function onScanDecoded(decodedText, opts) {
+async function onScanDecoded(decodedText, opts) {
   // opts.viaGallery — явный выбор фото из галереи (а не фоновый кадр живой
   // камеры). Обычные кадры камеры, пока открыта карточка (ввод количества
   // или результат "Проверки"), как и раньше, полностью игнорируем — а вот
@@ -4182,6 +4201,25 @@ function onScanDecoded(decodedText, opts) {
     scanLocked = true;
     resetScanPanels();
     document.getElementById("scanHintText").classList.add("hidden");
+    if (!refDataReady) {
+      // Первая загрузка справочника СКЮ (skuList) со входа ещё не успела
+      // завершиться — обычно это буквально первые 1-2 секунды после входа
+      // (особенно на медленной связи), а человек уже успел отсканировать.
+      // Карточка "Страховочный срок" без skuList посчитать ничего не может
+      // (справочник для неё физически ещё не пришёл), хотя в самой Google
+      // Таблице всё заполнено — раньше в этот момент карточка просто молча
+      // не появлялась. Теперь ждём (обычно доли секунды — секунда-две)
+      // конца этой самой первой загрузки и только потом считаем карточку —
+      // а не тихо пропускаем её насовсем.
+      document.getElementById("scanCheckStatus").innerHTML = `<div class="muted">⏳ Загружаю справочник СКЮ…</div>`;
+      document.getElementById("scanCheckStatus").classList.remove("hidden");
+      try { await refDataReadyPromise; } catch (e) {}
+      // Пока ждали — человек мог уже сам закрыть эту карточку ("Понятно,
+      // сканировать дальше") или вообще выйти из сканера: и то, и другое
+      // сбрасывает scanLocked в false. Если так — не подсовываем устаревший
+      // результат поверх того, что он уже открыл/делает сейчас.
+      if (!scanLocked) return;
+    }
     const rendered = renderVerifyResultHtml(p, realText);
     document.getElementById("scanCheckStatus").innerHTML = rendered.status;
     document.getElementById("scanCheckRows").innerHTML = rendered.rowsHtml;
