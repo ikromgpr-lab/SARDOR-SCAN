@@ -495,6 +495,17 @@
     0%, 100% { box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 3px rgba(255,255,255,.4); }
     50%      { box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 3px rgba(255,255,255,.85), 0 0 18px 2px rgba(255,255,255,.25); }
   }
+  /* По просьбе: после распознанного кода — заморозить именно то фото
+     этикетки, что было распознано (кадр камеры в момент распознавания, либо
+     сама выбранная фотография, если сканировали из галереи), и держать его
+     видимым внутри рамки до СЛЕДУЮЩЕГО распознавания — вместо того, чтобы
+     живое видео сразу продолжало идти дальше. Нигде не сохраняется — это
+     обычный <img> с blob:/data: адресом только в памяти вкладки, см.
+     setFreezeSnapshot()/clearFreezeSnapshot() в JS; при закрытии сканера и
+     при следующем успешном скане (новое фото поверх старого) он всегда
+     подчищается. object-fit:cover — так же, как у самого видео, чтобы кадр
+     внутри рамки не "прыгал" при появлении фото. */
+  #vfFreezeImg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:inherit; pointer-events:none; }
   .viewfinder.vf-ok {
     animation:none;
     box-shadow:0 0 0 2000px rgba(0,0,0,.55), 0 0 0 4px #2ecc71, 0 0 26px 5px rgba(46,204,113,.55);
@@ -1216,6 +1227,7 @@
   <div class="scan-video-wrap">
     <div id="reader"></div>
     <div class="viewfinder" id="viewfinder">
+      <img id="vfFreezeImg" class="hidden" alt="" />
       <span class="corner tl"></span><span class="corner tr"></span>
       <span class="corner bl"></span><span class="corner br"></span>
       <span class="vf-scanline"></span>
@@ -2953,6 +2965,11 @@ document.getElementById("scanFileInput").onchange = async (e) => {
       } catch (loadErr) { /* не смогли даже загрузить фото как картинку — оставляем исходную ошибку из lastErr */ }
     }
     if (decodedText == null) throw (lastErr || new Error("код не найден"));
+    // Заморозка в рамке — тут показываем именно САМУ выбранную фотографию
+    // (не уменьшенную/чёрно-белую копию, которыми могли перебирать попытки
+    // выше) — так человек видит ровно то фото, которое выбрал. blob-адрес
+    // живёт только в памяти вкладки, см. setFreezeSnapshot().
+    try { setFreezeSnapshot(URL.createObjectURL(file)); } catch (e) {}
     // Дальше — та же самая обработка, что и для кадра с живой камеры:
     // расшифровка/разбор формата/проверка по справочнику СКЮ и т.д.
     onScanDecoded(decodedText);
@@ -3094,6 +3111,7 @@ function warmupAudioContext() {
 function openScanner() {
   const overlay = document.getElementById("scanOverlay");
   overlay.classList.remove("hidden");
+  clearFreezeSnapshot(); // свежее открытие сканера — без фото от прошлой сессии
   pinScanOverlayToViewport();
   warmupAudioContext();
   if (verifyOnlyMode) {
@@ -3202,7 +3220,13 @@ function openScanner() {
         height: { ideal: 1080 }
       }
     },
-    (text) => { if (!nativeScanActive) onScanDecoded(text); },
+    (text) => {
+      if (!nativeScanActive) {
+        const snap = captureViewfinderSnapshotFromVideo();
+        if (snap) setFreezeSnapshot(snap);
+        onScanDecoded(text);
+      }
+    },
     () => {}
   ).then(async () => {
     setupTorchButton();
@@ -3278,6 +3302,51 @@ function computeViewfinderCropRect(videoEl) {
   return { sx, sy, sw, sh };
 }
 
+// ---------- "заморозка" фото распознанного кода в рамке ----------
+// По просьбе: после успешного распознавания (с живой камеры ИЛИ из фото из
+// галереи) показать именно то фото/кадр внутри рамки и держать его до
+// следующего распознавания — вместо того, чтобы видео сразу продолжало
+// идти дальше живьём. Ничего не сохраняется ни на сервер, ни на диск, ни в
+// localStorage — только blob:/data: адрес в памяти текущей вкладки, и он
+// подчищается (URL.revokeObjectURL) при каждой новой заморозке и при
+// закрытии сканера (см. closeScanner/openScanner).
+function setFreezeSnapshot(url) {
+  const img = document.getElementById("vfFreezeImg");
+  if (!img || !url) return;
+  const prevWasBlob = img.dataset.blobUrl === "1";
+  const prevSrc = img.src;
+  img.src = url;
+  img.dataset.blobUrl = url.startsWith("blob:") ? "1" : "0";
+  img.classList.remove("hidden");
+  if (prevWasBlob && prevSrc) { try { URL.revokeObjectURL(prevSrc); } catch (e) {} }
+}
+function clearFreezeSnapshot() {
+  const img = document.getElementById("vfFreezeImg");
+  if (!img) return;
+  if (img.dataset.blobUrl === "1" && img.src) { try { URL.revokeObjectURL(img.src); } catch (e) {} }
+  img.removeAttribute("src");
+  img.removeAttribute("data-blob-url");
+  img.classList.add("hidden");
+}
+// Снимок кадра камеры РОВНО по рамке-видоискателю (тот же расчёт, что и у
+// нативного детектора, см. computeViewfinderCropRect выше) — используется
+// на устройствах без BarcodeDetector, где у JS-декодера html5-qrcode нет
+// своего уже готового обрезанного кадра под рукой в момент распознавания.
+function captureViewfinderSnapshotFromVideo() {
+  try {
+    const videoEl = document.querySelector("#reader video");
+    if (!videoEl || !videoEl.videoWidth) return null;
+    const crop = computeViewfinderCropRect(videoEl);
+    if (!crop || crop.sw <= 4 || crop.sh <= 4) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(crop.sw);
+    canvas.height = Math.round(crop.sh);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(videoEl, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch (e) { return null; }
+}
+
 // Возвращает true, если нативный цикл реально запущен (тогда вызывающий код
 // ставит html5-qrcode на паузу — см. openScanner()), иначе false (остаёмся
 // на обычном html5-qrcode, его decode-callback уже активен по умолчанию).
@@ -3322,7 +3391,10 @@ async function startNativeScanLoop() {
             detectFrameCounter++;
             if (detectFrameCounter % 2 === 0) processDetectionFrame(nativeScanCanvas);
             const codes = await nativeDetector.detect(nativeScanCanvas);
-            if (codes && codes.length && nativeScanActive) onScanDecoded(codes[0].rawValue);
+            if (codes && codes.length && nativeScanActive) {
+              try { setFreezeSnapshot(nativeScanCanvas.toDataURL("image/jpeg", 0.85)); } catch (e) {}
+              onScanDecoded(codes[0].rawValue);
+            }
           }
         }
       } catch (e) { /* иногда кадр не читается (камера ещё не готова и т.п.) — просто пробуем следующий */ }
@@ -4195,6 +4267,7 @@ function closeScanner() {
   focusRetryTimer = null;
   stopNativeScanLoop();
   stopDetectionAssistLoop();
+  clearFreezeSnapshot(); // закрыли сканер — фото не оставляем "висеть" в памяти
   if (html5QrCode) {
     // .stop() может не только отклонить промис (это уже ловилось через
     // .catch), но и бросить исключение СИНХРОННО — например, если камера так
