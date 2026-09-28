@@ -2694,7 +2694,10 @@ function renderVerifyResultHtml(p, rawText) {
   }
   const rows = buildDetailedFields(rawText || `${p.lot} ${p.displayDate}`, p);
   return {
-    status: `<div class="ok" style="margin-bottom:6px;">✓ Код распознан — все данные этикетки:</div>`,
+    // По просьбе убрали строку "✓ Код распознан — все данные этикетки:" —
+    // сам список полей ниже (rowsHtml) остаётся как есть, просто без этого
+    // заголовка сверху.
+    status: ``,
     rowsHtml: `<div style="background:#fff; border-radius:12px; padding:2px 12px;">${detailRowsToHtml(rows)}</div>`
   };
 }
@@ -3100,7 +3103,10 @@ function openScanner() {
     // Список "последних сканов" (это данные из cart Операций) и счётчик
     // cart.length здесь неприменимы — показываем свой счётчик.
     document.body.style.setProperty("--mode-color", "#6366f1");
-    document.getElementById("scanModeLabel").textContent = "Проверка — без учёта";
+    // По просьбе убрали надпись "Проверка — без учёта" из шапки сканера в
+    // этом режиме (остальные режимы её всё равно показывают — см. else
+    // ниже, там текст не трогали).
+    document.getElementById("scanModeLabel").textContent = "";
     verifyScanCount = 0;
     document.getElementById("scanCounter").textContent = verifyScanCount;
     document.getElementById("scanLast3").classList.add("hidden");
