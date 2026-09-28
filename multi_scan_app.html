@@ -621,7 +621,12 @@
     .vf-scanline { animation:none; opacity:0; }
   }
   .scan-topbar {
-    position:absolute; top:0; left:0; right:0; z-index:2; display:flex; align-items:center; justify-content:space-between;
+    /* z-index поднят с 2 до 65 (выше .qty-modal-overlay, у которого 60) — раньше,
+       пока была открыта карточка ввода количества (после скана, до "Добавить и
+       продолжить сканирование"), весь верхний ряд кнопок (галерея/звук/фонарик/✕)
+       физически перекрывался этой модалкой и не нажимался вообще — по просьбе
+       кнопка галереи (и остальные тут же) должна оставаться нажимаемой всегда. */
+    position:absolute; top:0; left:0; right:0; z-index:65; display:flex; align-items:center; justify-content:space-between;
     /* Отступ сверху увеличен (было max(10px, safe-area)) — кнопки стояли
        слишком прижато к самому верху экрана/строке статуса, по просьбе
        "опустить верхнюю рамку вниз, чтобы нормально смотрелась". */
@@ -2505,18 +2510,10 @@ function localIso(date) {
 }
 function computeShelfStatus(code, prodIsoDate) {
   const info = skuList.find(s => String(s.code).trim().toLowerCase() === String(code).trim().toLowerCase());
-  if (!info || !prodIsoDate) return null;
+  if (!info || !prodIsoDate) return null; // СКЮ вообще нет в справочнике (или нет даты) — правда нечего считать
   const limit = Number(warehouseKindClient(ME.warehouse) === "sgp" ? info.sgpDay : info.regionDay) || 0;
-  if (!limit) return null; // справочник не заполнен для этого СКЮ/склада — блок просто не показываем, чтобы не путать нулями
   const prodDate = new Date(prodIsoDate + "T00:00:00");
   const ageDays = Math.floor((Date.now() - prodDate.getTime()) / 86400000);
-  // Статус (Норма/Превышен) — как и раньше, от лимита страховочного срока
-  // (sgpDay/regionDay): это порог нарушения, обычно заметно короче полного
-  // срока годности, и именно он определяет цвет/статус.
-  // Норма — ВКЛЮЧИТЕЛЬНО: если норма 25 дн. и прошло ровно 25 дн., это ещё
-  // "Норма" (не "Превышен"); превышение начинается только на 26-й день
-  // (ageDays > limit), по прямой просьбе именно так считать.
-  const status = ageDays > limit ? SHELF_STATUS_EXCEEDED : "Норма";
 
   // "Срок годности" — ОТДЕЛЬНАЯ величина (колонка "Срок годности, мес" в
   // листе SkuRef), полный срок жизни товара от даты производства. По
@@ -2532,7 +2529,32 @@ function computeShelfStatus(code, prodIsoDate) {
     shelfLifeDays = Math.round((expiry.getTime() - prodDate.getTime()) / 86400000);
     if (shelfLifeDays > 0) pctShelf = Math.max(0, Math.round((ageDays / shelfLifeDays) * 100));
   }
-  return { status, ageDays, limitDay: limit, shelfMonths, expiryIso, shelfLifeDays, pctShelf };
+
+  // Раньше, если лимит страховочного срока (sgpDay/regionDay) для этого
+  // СКЮ/склада не был заполнен в справочнике, карточку вообще не показывали
+  // ("чтобы не путать нулями" — иначе "Норма" была бы "0 дн." и статус всегда
+  // "Превышен"). По просьбе теперь показываем карточку в любом случае, когда
+  // есть ХОТЬ КАКИЕ-ТО данные — либо лимит страховочного срока, либо (если
+  // лимита нет) хотя бы полный срок годности из того же справочника. Если нет
+  // ни того, ни другого — значит по этому СКЮ в справочнике вообще ничего не
+  // заполнено, и тут правда нечего показать (это не ошибка кода, а пустой
+  // справочник — см. лист SkuRef, колонки sgpDay/regionDay/"Срок годности, мес").
+  const hasLimit = limit > 0;
+  const hasShelfLife = shelfLifeDays > 0;
+  if (!hasLimit && !hasShelfLife) return null;
+
+  // Статус (Норма/Превышен): как и раньше, от лимита страховочного срока,
+  // если он известен (это порог нарушения, обычно заметно короче полного
+  // срока годности). Норма — ВКЛЮЧИТЕЛЬНО: если норма 25 дн. и прошло ровно
+  // 25 дн., это ещё "Норма" (не "Превышен"); превышение начинается только на
+  // 26-й день (ageDays > limit), по прямой просьбе именно так считать. Если
+  // лимита в справочнике нет, а есть только полный срок годности — считаем
+  // "Превышен" по нему же (вышли за пределы срока годности целиком).
+  const status = hasLimit
+    ? (ageDays > limit ? SHELF_STATUS_EXCEEDED : "Норма")
+    : (ageDays > shelfLifeDays ? SHELF_STATUS_EXCEEDED : "Норма");
+
+  return { status, ageDays, limitDay: limit, hasLimit, shelfMonths, expiryIso, shelfLifeDays, pctShelf };
 }
 // Карточка статуса. "День производства" внутри убран — эта дата и так есть
 // отдельной строкой сразу под карточкой (карточка теперь показывается ПЕРЕД
@@ -2555,6 +2577,13 @@ function shelfStatusBlockHtml(s) {
   const shelfLine = hasShelf
     ? `<div class="shelf-row"><span class="shelf-row-label">Срок годности</span><span class="shelf-row-value">${s.shelfMonths} мес. / ${s.shelfLifeDays} дн. (до ${ddmmyyyy(s.expiryIso)})</span></div>`
     : "";
+  // Если лимит страховочного срока для этого СКЮ/склада в справочнике не
+  // заполнен (s.hasLimit === false) — ячейку "Норма" не рисуем вовсе (ставить
+  // в неё нечего осмысленного, "0 дн." было бы обманчиво); остаются
+  // "Прошло"/"Осталось", посчитанные от полного срока годности (см. выше).
+  const normaCellHtml = s.hasLimit
+    ? `<div class="shelf-stat"><span class="shelf-stat-label">Норма</span><span class="shelf-stat-val">${s.limitDay} дн.</span></div>`
+    : "";
   return `<div class="shelf-block${isBad ? " shelf-bad" : ""}">
     <div class="shelf-block-top">
       <span class="shelf-block-label">⏳ Страховочный срок</span>
@@ -2562,7 +2591,7 @@ function shelfStatusBlockHtml(s) {
     </div>
     ${shelfLine}
     <div class="shelf-stats-row">
-      <div class="shelf-stat"><span class="shelf-stat-label">Норма</span><span class="shelf-stat-val">${s.limitDay} дн.</span></div>
+      ${normaCellHtml}
       <div class="shelf-stat"><span class="shelf-stat-label">Прошло</span><span class="shelf-stat-val">${s.ageDays} дн.</span></div>
       <div class="shelf-stat"><span class="shelf-stat-label">Осталось</span><span class="shelf-stat-val">${remainingDays} дн.</span></div>
     </div>
@@ -2971,8 +3000,11 @@ document.getElementById("scanFileInput").onchange = async (e) => {
     // живёт только в памяти вкладки, см. setFreezeSnapshot().
     try { setFreezeSnapshot(URL.createObjectURL(file)); } catch (e) {}
     // Дальше — та же самая обработка, что и для кадра с живой камеры:
-    // расшифровка/разбор формата/проверка по справочнику СКЮ и т.д.
-    onScanDecoded(decodedText);
+    // расшифровка/разбор формата/проверка по справочнику СКЮ и т.д. viaGallery:
+    // true — это осознанный выбор фото человеком (не фоновый кадр камеры),
+    // поэтому даже если карточка предыдущего скана ещё открыта, эта не
+    // блокируется, а обновляет её (см. комментарий в onScanDecoded).
+    onScanDecoded(decodedText, { viaGallery: true });
   } catch (err) {
     // Технический текст ошибки в консоль (не на экран) — если проблема
     // повторится на каком-то конкретном устройстве, это поможет понять,
@@ -4074,8 +4106,19 @@ function stopDetectionAssistLoop() {
   resetDetectionState();
 }
 
-function onScanDecoded(decodedText) {
-  if (scanLocked) return; // пока открыта карточка ввода количества — новые кадры игнорируем
+function onScanDecoded(decodedText, opts) {
+  // opts.viaGallery — явный выбор фото из галереи (а не фоновый кадр живой
+  // камеры). Обычные кадры камеры, пока открыта карточка (ввод количества
+  // или результат "Проверки"), как и раньше, полностью игнорируем — а вот
+  // осознанный выбор НОВОГО фото из галереи в это же время, по просьбе, не
+  // блокируем: он должен обновить уже открытую карточку данными этого
+  // нового фото (старый неподтверждённый скан просто заменяется — ничего из
+  // него никуда не сохранялось, как и при "Отменить этот скан"). Ничего
+  // явно закрывать здесь не нужно — resetScanPanels() внутри showQuickEntry
+  // и в ветке verifyOnlyMode ниже сам стирает содержимое прежней карточки
+  // перед тем, как показать новое.
+  const viaGallery = !!(opts && opts.viaGallery);
+  if (scanLocked && !viaGallery) return; // пока открыта карточка — фоновые кадры камеры игнорируем
 
   // Новые QR-этикетки зашифрованы (см. decryptQrPayload выше) — сначала
   // восстанавливаем настоящий текст "СКЮ-дата". Старые CODE_128-этикетки
