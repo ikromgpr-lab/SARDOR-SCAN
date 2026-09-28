@@ -2855,9 +2855,14 @@ document.getElementById("scanFileInput").onchange = async (e) => {
           // сработало: zxing внутри html5-qrcode код не находил, а jsQR
           // прочитал его сразу же, без всякого уменьшения.
           try {
+            console.warn("jsQR: пробую…", typeof window.jsQR, img.naturalWidth, img.naturalHeight);
             const jsqrResult = tryJsQR(img);
+            console.warn("jsQR: результат:", jsqrResult);
             if (jsqrResult != null) { decodedText = jsqrResult; lastErr = null; }
-          } catch (err3) { /* jsQR не подключился/не смог — не критично, остаёмся при исходной ошибке из lastErr */ }
+          } catch (err3) {
+            console.warn("jsQR: упал с ошибкой:", err3);
+            /* jsQR не подключился/не смог — не критично, остаёмся при исходной ошибке из lastErr */
+          }
         }
       } catch (loadErr) { /* не смогли даже загрузить фото как картинку — оставляем исходную ошибку из lastErr */ }
     }
