@@ -26,6 +26,9 @@
     --ok-bg:#e7f6ec; --ok-text:#1e7b39; --ok-border:#bfe8cc;
     --warn-bg:#fff6e0; --warn-text:#8a6100; --warn-border:#ffe4a3;
     --err-bg:#fdecee; --err-text:#a11d2e; --err-border:#f6c6cc;
+    /* Критический статус страховочного срока — заметно темнее/тревожнее
+       обычного "Превышен" (--err-*), чтобы отличаться на глаз в карточке. */
+    --crit-bg:#f8d2d2; --crit-text:#7a0d12; --crit-border:#ec9ea4;
     --radius:16px; --radius-sm:12px;
     --shadow:0 4px 18px rgba(20,20,20,.08), 0 1px 3px rgba(20,20,20,.04);
     --nav-h:76px;
@@ -171,15 +174,18 @@
   .status-pill { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11.5px; font-weight:700; }
   .status-ok { background:var(--ok-bg, #e6f4ea); color:var(--ok-text, #1e5b30); }
   .status-bad { background:var(--err-bg, #fdecea); color:var(--err-text, #7a1f14); }
+  .status-critical { background:var(--crit-bg, #f8d2d2); color:var(--crit-text, #7a0d12); }
   /* Блок статуса страховочного срока в «Проверке» (после даты производства) —
-     та же цветовая пара, что и у .status-pill (Норма/Превышен), только
+     та же цветовая пара, что и у .status-pill (Норма/Превышен/Критический), только
      применённая целиком к карточке: подписи, шкала заполнения и сами числа
      дней/процента — всё одного цвета со статусом, как и попросили. */
   .shelf-block { margin:2px 0 10px; padding:11px 13px; border-radius:14px; border:1px solid var(--ok-border); background:var(--ok-bg); }
   .shelf-block.shelf-bad { border-color:var(--err-border); background:var(--err-bg); }
+  .shelf-block.shelf-critical { border-color:var(--crit-border); background:var(--crit-bg); }
   .shelf-block-top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:7px; }
   .shelf-block-label { font-size:12px; font-weight:700; color:var(--ok-text); letter-spacing:.01em; }
   .shelf-block.shelf-bad .shelf-block-label { color:var(--err-text); }
+  .shelf-block.shelf-critical .shelf-block-label { color:var(--crit-text); }
   /* Строки "Срок годности" / "День производства" — компактные пары
      подпись-значение внутри карточки, тот же порядок, что и попросили:
      сначала срок годности, потом день производства. */
@@ -194,12 +200,15 @@
   .shelf-stat-label { display:block; font-size:10.5px; color:var(--muted); margin-bottom:1px; }
   .shelf-stat-val { display:block; font-size:13px; font-weight:800; color:var(--ok-text); }
   .shelf-block.shelf-bad .shelf-stat-val { color:var(--err-text); }
+  .shelf-block.shelf-critical .shelf-stat-val { color:var(--crit-text); }
   .shelf-bar-row { display:flex; align-items:center; gap:10px; margin-top:9px; }
   .shelf-bar-track { flex:1; height:8px; border-radius:5px; background:rgba(0,0,0,.09); overflow:hidden; }
   .shelf-bar-fill { height:100%; border-radius:5px; background:var(--ok-text, #1e5b30); transition:width .35s ease; }
   .shelf-block.shelf-bad .shelf-bar-fill { background:var(--err-text, #7a1f14); }
+  .shelf-block.shelf-critical .shelf-bar-fill { background:var(--crit-text, #7a0d12); }
   .shelf-pct { flex-shrink:0; font-size:16px; font-weight:800; color:var(--ok-text); }
   .shelf-block.shelf-bad .shelf-pct { color:var(--err-text); }
+  .shelf-block.shelf-critical .shelf-pct { color:var(--crit-text); }
   /* Подписи полей — раньше обычный серый текст, теперь моноширинный
      "системный" стиль (капс + разрядка + бирюзовый цвет вместо серого) —
      это встречается на КАЖДОЙ форме приложения (Операции/Остатки/Админ и
@@ -1400,9 +1409,21 @@ function loadRefDataCache() {
 // из-за чего это вообще нужно) обновление применяется сразу — skuCodesSet
 // используется "вживую" при каждом скане, копию никто не хранит.
 let refDataRefreshInFlight = false;
+// Справочники (СКЮ/склады/агенты/цеха) меняются редко — не обязательно
+// стучаться в Google Таблицу КАЖДЫЙ раз, когда человек вернулся в приложение
+// (переключил вкладку/развернул телефон после блокировки экрана — событие
+// "visibilitychange" ниже срабатывает на КАЖДОЕ такое переключение, а на
+// медленной связи это ощущалось как "постоянно подключается"). Не чаще
+// одного реального обновления за REFDATA_MIN_INTERVAL_MS — обычный
+// периодический опрос (см. setInterval ниже) и есть подстраховка на случай,
+// если данные в Таблице поменялись, просто без лишней частоты.
+const REFDATA_MIN_INTERVAL_MS = 300000; // 5 минут
+let lastRefDataFetchAt = 0;
 async function refreshRefDataFromServer() {
   if (!ME || refDataRefreshInFlight) return;
+  if (Date.now() - lastRefDataFetchAt < REFDATA_MIN_INTERVAL_MS) return;
   refDataRefreshInFlight = true;
+  lastRefDataFetchAt = Date.now();
   try {
     const results = await Promise.allSettled([
       apiGet({ action: "warehouses" }),
@@ -1737,6 +1758,45 @@ async function showMain() {
     document.querySelector('.tab-btn[data-tab="stock"]').classList.add("hidden");
   }
 
+  // Восстанавливаем вкладку, которая была открыта в прошлый раз (см. её
+  // сохранение в обработчике клика на .tab-btn выше) — при обычной
+  // перезагрузке страницы, а также когда Android выгружает вкладку браузера
+  // из фона по нехватке памяти и подгружает её заново при возврате, человека
+  // раньше всегда бросало на "Операции", даже если он сидел в "Проверке"
+  // или "Остатках" — выглядело как баг "сбрасывает в начало". Кликаем по
+  // сохранённой вкладке programmatically (это тот же код, что и обычный
+  // клик), только если она вообще есть на экране для текущей роли.
+  try {
+    const savedTab = sessionStorage.getItem("activeTab");
+    if (savedTab) {
+      const savedTabBtn = document.querySelector('.tab-btn[data-tab="' + savedTab + '"]');
+      if (savedTabBtn && !savedTabBtn.classList.contains("hidden")) savedTabBtn.click();
+    }
+  } catch (e) {}
+
+  // Справочники редко меняются (по прямой просьбе — не обязательно каждый
+  // раз "стучаться" в Google Таблицу, чтобы понять, через сколько дней СКЮ
+  // станет "Превышен"/"Критический"): если есть офлайн-кэш с прошлого раза —
+  // подставляем его СРАЗУ же, синхронно, ещё до обращения к серверу. Это
+  // сразу открывает сканер и включает карточку "Страховочный срок" (без
+  // ожидания сети на медленной связи), а живые данные всё равно подтянутся
+  // следом и тихо обновят их же, когда придёт ответ (см. ниже) — никакой
+  // функциональности не теряем, только не блокируем интерфейс ожиданием.
+  const earlyCache = loadRefDataCache();
+  if (earlyCache) {
+    warehousesList = earlyCache.warehouses || [];
+    agentsList = earlyCache.agents || [];
+    renderAgentsDatalist();
+    shopsList = earlyCache.shops || [];
+    skuList = earlyCache.skus || [];
+    skuCodesSet = new Set(skuList.map(s => String(s.code).trim().toLowerCase()));
+    fieldLabelOverrides = earlyCache.fieldLabels || {};
+    fieldValueDecodeMap = earlyCache.fieldValueLabels || {};
+    if (!refDataReady) { refDataReady = true; _refDataReadyResolve(); }
+    applyModeUI();
+    setupSnapshotFilter();
+  }
+
   // Справочники (склады/агенты/цеха/СКЮ) нужны только для СОДЕРЖИМОГО
   // выпадающих списков "откуда/куда"/агент — грузим их в фоне ПАРАЛЛЕЛЬНО
   // (не по очереди), и когда они придут — обновляем поля текущего режима,
@@ -1770,6 +1830,7 @@ async function showMain() {
   fieldLabelOverrides = fieldLabelsRes.status === "fulfilled" ? (fieldLabelsRes.value.labels || {}) : ((cache && cache.fieldLabels) || {});
   fieldValueDecodeMap = fieldLabelsRes.status === "fulfilled" ? (fieldLabelsRes.value.valueLabels || {}) : ((cache && cache.fieldValueLabels) || {});
   saveRefDataCache(); // обновляем кэш свежими данными (а если офлайн — молча пересохраняем то же самое, без вреда)
+  lastRefDataFetchAt = Date.now(); // этот вход уже сходил в сеть за справочниками — не дублируем тем же запросом из refreshRefDataFromServer() в ближайшие REFDATA_MIN_INTERVAL_MS
   // skuList/skuCodesSet выше уже присвоены (хоть с сервера, хоть из офлайн-
   // кэша) — с этого момента можно безопасно считать карточку "Страховочный
   // срок" в «Проверке» (см. refDataReady/refDataReadyPromise выше и их
@@ -1800,6 +1861,10 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
       const el = document.getElementById("tab-" + t);
       if (t === btn.dataset.tab) el.classList.remove("hidden"); else el.classList.add("hidden");
     });
+    // Запоминаем открытую вкладку — восстанавливается в showMain() при
+    // перезагрузке страницы/возврате из фона (см. там же), чтобы человека не
+    // "сбрасывало" на "Операции", если он был, например, в "Проверке".
+    try { sessionStorage.setItem("activeTab", btn.dataset.tab); } catch (e) {}
     if (btn.dataset.tab === "pending") loadPending();
     if (btn.dataset.tab === "sent") loadSentDocs();
     if (btn.dataset.tab === "stock") loadStock();
@@ -1882,13 +1947,26 @@ function setupModes() {
       document.querySelectorAll(".mode-btn").forEach(x => x.classList.remove("active"));
       b.classList.add("active");
       currentMode = id;
+      try { sessionStorage.setItem("currentMode", id); } catch (e) {}
       cart = []; renderCart();
       document.getElementById("scanMsg").innerHTML = "";
       applyModeUI();
     };
     box.appendChild(b);
   });
-  currentMode = modes[0][0];
+  // Восстанавливаем последний выбранный режим (Приход/Отгрузка/Инвентаризация
+  // и т.п.), если он ещё доступен для этой роли — иначе, как и раньше, берём
+  // первый в списке. Без этого возврат из фона/перезагрузка страницы всегда
+  // молча переключал(и) человека на первый режим в списке, даже если он
+  // явно выбрал другой (просто пока ничего не отсканировал — иначе сработало
+  // бы восстановление черновика списка в restoreCartDraft(), которое само
+  // переключает режим через .click() и переопределит значение отсюда).
+  let savedMode = null;
+  try { savedMode = sessionStorage.getItem("currentMode"); } catch (e) {}
+  const modeIds = modes.map(m => m[0]);
+  currentMode = (savedMode && modeIds.indexOf(savedMode) !== -1) ? savedMode : modes[0][0];
+  try { sessionStorage.setItem("currentMode", currentMode); } catch (e) {}
+  document.querySelectorAll(".mode-btn").forEach(x => x.classList.toggle("active", x.dataset.mode === currentMode));
   applyModeUI();
 }
 
@@ -2501,6 +2579,13 @@ function warehouseKindClient(name) {
 // понадобилось поменять формулировку, легко забыть одно из мест. Теперь
 // меняется только здесь.
 const SHELF_STATUS_EXCEEDED = "Превышен";
+// "Критический" — отдельный, более тяжёлый статус: превышена не сама норма
+// страховочного срока, а порог "Критическое с дня" из справочника SkuRef
+// (колонка "Критическое с дня", то же значение уже приходит клиенту в
+// skuList как info.criticalDay — см. getSkus() в Code.gs). Критический
+// строго ПОСЛЕ порога (ageDays > criticalDay), не начиная точно с него —
+// по прямой просьбе то же правило "включительно/после", что и у "Норма"/"Превышен".
+const SHELF_STATUS_CRITICAL = "Критический";
 // Прибавляет N месяцев к дате правильно: день должен оставаться тем же
 // (26.09 + 6 мес. = 26.03), меняется только месяц. Отдельного международного
 // стандарта именно для арифметики "дата + N месяцев" нет (ISO 8601 описывает
@@ -2562,18 +2647,32 @@ function computeShelfStatus(code, prodIsoDate) {
   const hasShelfLife = shelfLifeDays > 0;
   if (!hasLimit && !hasShelfLife) return null;
 
-  // Статус (Норма/Превышен): как и раньше, от лимита страховочного срока,
-  // если он известен (это порог нарушения, обычно заметно короче полного
-  // срока годности). Норма — ВКЛЮЧИТЕЛЬНО: если норма 25 дн. и прошло ровно
-  // 25 дн., это ещё "Норма" (не "Превышен"); превышение начинается только на
-  // 26-й день (ageDays > limit), по прямой просьбе именно так считать. Если
-  // лимита в справочнике нет, а есть только полный срок годности — считаем
-  // "Превышен" по нему же (вышли за пределы срока годности целиком).
-  const status = hasLimit
-    ? (ageDays > limit ? SHELF_STATUS_EXCEEDED : "Норма")
-    : (ageDays > shelfLifeDays ? SHELF_STATUS_EXCEEDED : "Норма");
+  // Статус (Норма/Превышен/Критический): как и раньше, от лимита
+  // страховочного срока, если он известен (это порог нарушения, обычно
+  // заметно короче полного срока годности). Норма — ВКЛЮЧИТЕЛЬНО: если норма
+  // 25 дн. и прошло ровно 25 дн., это ещё "Норма" (не "Превышен"); превышение
+  // начинается только на 26-й день (ageDays > limit), по прямой просьбе именно
+  // так считать. Если лимита в справочнике нет, а есть только полный срок
+  // годности — считаем "Превышен" по нему же (вышли за пределы срока годности
+  // целиком).
+  // "Критический" — отдельная, более тяжёлая проверка сверху: столбец
+  // "Критическое с дня" в SkuRef уже содержит порог 20%-го превышения
+  // (посчитанный тем, кто ведёт справочник), поэтому здесь просто сравниваем
+  // с ним — как и с нормой, СТРОГО после порога (ageDays > criticalDay), а не
+  // начиная точно с 20% ("не на ровно 20%, а после"). Критический перекрывает
+  // обычный "Превышен", когда применим (порог critical всегда дальше limit).
+  const criticalDay = Number(info.criticalDay) || 0;
+  const hasCritical = criticalDay > 0;
+  let status;
+  if (hasCritical && ageDays > criticalDay) {
+    status = SHELF_STATUS_CRITICAL;
+  } else if (hasLimit ? ageDays > limit : ageDays > shelfLifeDays) {
+    status = SHELF_STATUS_EXCEEDED;
+  } else {
+    status = "Норма";
+  }
 
-  return { status, ageDays, limitDay: limit, hasLimit, shelfMonths, expiryIso, shelfLifeDays, pctShelf };
+  return { status, ageDays, limitDay: limit, hasLimit, criticalDay, hasCritical, shelfMonths, expiryIso, shelfLifeDays, pctShelf };
 }
 // Карточка статуса. "День производства" внутри убран — эта дата и так есть
 // отдельной строкой сразу под карточкой (карточка теперь показывается ПЕРЕД
@@ -2584,7 +2683,8 @@ function computeShelfStatus(code, prodIsoDate) {
 // красный — «Превышен»).
 function shelfStatusBlockHtml(s) {
   if (!s) return "";
-  const isBad = s.status === SHELF_STATUS_EXCEEDED;
+  const isCritical = s.status === SHELF_STATUS_CRITICAL;
+  const isBad = s.status === SHELF_STATUS_EXCEEDED || isCritical;
   const hasShelf = s.shelfMonths > 0 && s.shelfLifeDays > 0;
   // Процент, шкала и "осталось" — от полного срока годности, когда он известен;
   // если в справочнике не заполнен (старые СКЮ без колонки "Срок годности, мес") —
@@ -2603,10 +2703,12 @@ function shelfStatusBlockHtml(s) {
   const normaCellHtml = s.hasLimit
     ? `<div class="shelf-stat"><span class="shelf-stat-label">Норма</span><span class="shelf-stat-val">${s.limitDay} дн.</span></div>`
     : "";
-  return `<div class="shelf-block${isBad ? " shelf-bad" : ""}">
+  const blockStateClass = isCritical ? " shelf-critical" : (isBad ? " shelf-bad" : "");
+  const pillStateClass = isCritical ? "status-critical" : (isBad ? "status-bad" : "status-ok");
+  return `<div class="shelf-block${blockStateClass}">
     <div class="shelf-block-top">
       <span class="shelf-block-label">⏳ Страховочный срок</span>
-      <span class="status-pill ${isBad ? "status-bad" : "status-ok"}">${s.status}</span>
+      <span class="status-pill ${pillStateClass}">${s.status}</span>
     </div>
     ${shelfLine}
     <div class="shelf-stats-row">
