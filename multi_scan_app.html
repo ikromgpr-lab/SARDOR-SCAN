@@ -2798,14 +2798,14 @@ const FIELD_LABEL_NAMES = {
 function resolveFieldLabel(key) {
   return fieldLabelOverrides[key] || FIELD_LABEL_NAMES[key] || null;
 }
-// Расшифровка конкретного ЗНАЧЕНИЯ поля (например "Смена: 1" -> "День") —
-// тоже из листа "FieldLabels" (колонки "Значение"/"Расшифровка"). В отличие
-// от названия поля, сырое значение в отображении не прячем — дописываем
-// расшифровку РЯДОМ ("1 (День)"), чтобы не терять исходные данные этикетки.
+// Расшифровка конкретного ЗНАЧЕНИЯ поля (например "Смена: н" -> "Ночь") —
+// тоже из листа "FieldLabels" (колонки "Значение"/"Расшифровка"). По просьбе
+// показываем ТОЛЬКО расшифровку ("Ночь"), без исходной буквы и без скобок —
+// сырое значение остаётся только если расшифровки для него в справочнике нет.
 function decorateFieldValue(key, value) {
   const map = fieldValueDecodeMap[key];
   const decoded = map && map[String(value).trim()];
-  return decoded ? `${value} (${decoded})` : value;
+  return decoded || value;
 }
 const GENERIC_FIELD_RE = /([A-Za-zА-Яа-яЁё]+)\s*:\s*([^\s:][^\s]*)/g;
 function extractLabeledFields(text) {
