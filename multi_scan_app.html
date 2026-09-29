@@ -2820,6 +2820,47 @@ function extractLabeledFields(text) {
   }
   return fields;
 }
+// Разбор пар "подпись-значение" БЕЗ двоеточия — на некоторых этикетках
+// (см. шаблон печати: слева "Ручной" — Пр/Оп/Об, каждое либо с числом от
+// руки, либо ПУСТОЕ, если ещё не заполнено; справа "Автоматический" — См и
+// Уп сразу со значением) подпись и значение просто идут подряд через
+// дефис/пробел, без ":" — extractLabeledFields такое не находит (ему нужно
+// двоеточие). Опираемся на СПИСОК ИЗВЕСТНЫХ подписей (FIELD_LABEL_NAMES +
+// лист FieldLabels): если очередной кусок текста — известная подпись, и
+// СЛЕДУЮЩИЙ кусок НЕ является ещё одной известной подписью — значит это и
+// есть её значение (пара, например "См" + "н" = Смена: Ночь). Если следующий
+// кусок — снова известная подпись (или текста дальше нет) — значит это поле
+// "ручное" и в этот раз ничем не заполнено, показываем его отдельно, со
+// значением "не заполнено". Всё, что не подписью и не значением подписи —
+// не теряется, попадает отдельной строкой "Прочие данные с этикетки".
+function extractPairedTokenFields(text) {
+  const knownKeys = {};
+  Object.keys(FIELD_LABEL_NAMES).forEach(k => { knownKeys[k] = true; });
+  Object.keys(fieldLabelOverrides).forEach(k => { knownKeys[k] = true; });
+  const tokens = String(text).split(/[\s\-:]+/).map(s => s.trim()).filter(Boolean);
+  const fields = [];
+  const leftoverParts = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const key = tokens[i].toLowerCase();
+    if (knownKeys[key]) {
+      const nextTok = (i + 1 < tokens.length) ? tokens[i + 1] : null;
+      const nextKey = nextTok ? nextTok.toLowerCase() : null;
+      if (nextTok !== null && !knownKeys[nextKey]) {
+        fields.push({ label: resolveFieldLabel(key) || tokens[i], rawLabel: key, value: decorateFieldValue(key, nextTok) });
+        i += 2;
+      } else {
+        fields.push({ label: resolveFieldLabel(key) || tokens[i], rawLabel: key, value: "не заполнено" });
+        i += 1;
+      }
+    } else {
+      leftoverParts.push(tokens[i]);
+      i += 1;
+    }
+  }
+  if (!fields.length) return null;
+  return { fields, leftover: leftoverParts.length ? leftoverParts.join(" ") : null };
+}
 // Собирает построчный список "подпись — значение" для полного отображения
 // в «Проверке». Дата и код товара всегда идут первыми строками (они точно
 // известны из parseCode/p), остальное — что нашлось в самом тексте этикетки.
@@ -2847,26 +2888,30 @@ function buildDetailedFields(rawText, p) {
   });
 
   if (!usedLabeled) {
-    // Старый формат БЕЗ подписанных полей (нет ни одной пары "подпись:
-    // значение", которую распознал бы extractLabeledFields выше) — то есть
-    // либо правда старая этикетка ("150-11.09.2026-хвост"), либо на этой
-    // конкретной этикетке подписи полей устроены иначе, чем в
-    // "Пр: 50 См: 1 ...". РАНЬШЕ этот остаток текста рубился на отдельные
-    // слова и показывался как "Доп. поле 1", "Доп. поле 2" и т.д. — по факту
-    // выглядело как бессмысленный набор обрывков (см. жалобу: "См", "н",
-    // "УП", "r", "152" по отдельности). Теперь вместо рубленых кусков
-    // показываем остаток ЦЕЛИКОМ, одной строкой, как он есть на этикетке —
-    // ничего не теряется и не выглядит как поломка. Если нужно, чтобы
-    // конкретные подписи (Пр/См/Оп/Уп/Об и т.п.) распознавались и здесь —
-    // пришлите этот текст (он будет виден прямо тут) и нужные названия для
-    // каждой части, добавим в словарь FIELD_LABEL_NAMES/лист FieldLabels.
     let rest = String(rawText).replace(/\*/g, "").trim();
     if (dateToken) rest = rest.replace(dateToken, " ");
     rest = rest.split("-").map(s => s.trim()).filter(Boolean)
       .filter(piece => piece.toLowerCase() !== String(p.lot).toLowerCase())
       .join(" ");
     rest = rest.replace(/\s+/g, " ").trim();
-    if (rest) rows.push({ label: "Доп. данные с этикетки", value: rest });
+
+    // Способ 2 — пары БЕЗ двоеточия (см. extractPairedTokenFields выше):
+    // именно этот формат оказался у реальных этикеток ("См"+"н" = Смена:
+    // Ночь, "Уп"+значение, а "Пр"/"Оп"/"Об" — "ручные" поля, часто пустые).
+    const paired = rest ? extractPairedTokenFields(rest) : null;
+    if (paired) {
+      paired.fields.forEach(f => {
+        if (skipKeys.includes(f.rawLabel)) return;
+        rows.push({ label: f.label, value: f.value });
+      });
+      if (paired.leftover) rows.push({ label: "Прочие данные с этикетки", value: paired.leftover });
+    } else if (rest) {
+      // Способ 3 (последний резерв) — совсем незнакомый формат, ни одна
+      // известная подпись не нашлась вообще. Показываем остаток целиком
+      // одной строкой, как он есть, чтобы данные не терялись и не
+      // рассыпались на бессмысленные обрывки, как было раньше.
+      rows.push({ label: "Доп. данные с этикетки", value: rest });
+    }
   }
   return rows;
 }
