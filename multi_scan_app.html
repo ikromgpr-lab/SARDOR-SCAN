@@ -2832,29 +2832,36 @@ function extractLabeledFields(text) {
 // кусок — снова известная подпись (или текста дальше нет) — значит это поле
 // "ручное" и в этот раз ничем не заполнено, показываем его отдельно, со
 // значением "не заполнено". Всё, что не подписью и не значением подписи —
-// не теряется, попадает отдельной строкой "Прочие данные с этикетки".
-function extractPairedTokenFields(text) {
+// не теряется, попадает отдельной строкой "Прочие данные с этикетки" — КРОМЕ
+// самого кода СКЮ (skipToken): он на этикетке иногда встречается ещё раз,
+// отдельно от даты/кода, который уже распознал parseCode — а строкой выше
+// (см. buildDetailedFields) он и так уже показан ("Код товара (SKU)"), не
+// нужно его дублировать в "прочих данных".
+function extractPairedTokenFields(text, skipToken) {
   const knownKeys = {};
   Object.keys(FIELD_LABEL_NAMES).forEach(k => { knownKeys[k] = true; });
   Object.keys(fieldLabelOverrides).forEach(k => { knownKeys[k] = true; });
+  const skipKey = skipToken ? String(skipToken).toLowerCase() : null;
   const tokens = String(text).split(/[\s\-:]+/).map(s => s.trim()).filter(Boolean);
   const fields = [];
   const leftoverParts = [];
   let i = 0;
   while (i < tokens.length) {
-    const key = tokens[i].toLowerCase();
+    const tok = tokens[i];
+    const key = tok.toLowerCase();
+    if (skipKey && key === skipKey) { i += 1; continue; } // сам код СКЮ — уже показан отдельной строкой выше
     if (knownKeys[key]) {
       const nextTok = (i + 1 < tokens.length) ? tokens[i + 1] : null;
       const nextKey = nextTok ? nextTok.toLowerCase() : null;
-      if (nextTok !== null && !knownKeys[nextKey]) {
-        fields.push({ label: resolveFieldLabel(key) || tokens[i], rawLabel: key, value: decorateFieldValue(key, nextTok) });
+      if (nextTok !== null && !knownKeys[nextKey] && nextKey !== skipKey) {
+        fields.push({ label: resolveFieldLabel(key) || tok, rawLabel: key, value: decorateFieldValue(key, nextTok) });
         i += 2;
       } else {
-        fields.push({ label: resolveFieldLabel(key) || tokens[i], rawLabel: key, value: "не заполнено" });
+        fields.push({ label: resolveFieldLabel(key) || tok, rawLabel: key, value: "не заполнено" });
         i += 1;
       }
     } else {
-      leftoverParts.push(tokens[i]);
+      leftoverParts.push(tok);
       i += 1;
     }
   }
@@ -2898,7 +2905,7 @@ function buildDetailedFields(rawText, p) {
     // Способ 2 — пары БЕЗ двоеточия (см. extractPairedTokenFields выше):
     // именно этот формат оказался у реальных этикеток ("См"+"н" = Смена:
     // Ночь, "Уп"+значение, а "Пр"/"Оп"/"Об" — "ручные" поля, часто пустые).
-    const paired = rest ? extractPairedTokenFields(rest) : null;
+    const paired = rest ? extractPairedTokenFields(rest, p.lot) : null;
     if (paired) {
       paired.fields.forEach(f => {
         if (skipKeys.includes(f.rawLabel)) return;
