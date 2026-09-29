@@ -1857,6 +1857,7 @@ async function showMain() {
   applyModeUI(); // подставляем реальные списки складов/агентов/цехов в поля текущего режима
   setupSnapshotFilter(); // чек-лист складов в "Остатках" тоже зависит от warehousesList
   restoreCartDraft(); // если в прошлый раз список отсканированного не был проведён — предлагаем его вернуть
+  restoreLastVerifyScan(); // если страница перезагрузилась прямо во время открытой карточки "Проверки" — показываем тот же результат заново на вкладке "Проверка"
   loadDocQueue(); // документы, не выгруженные из-за отсутствия связи в прошлый раз
   attemptFlushDocQueue(); // на случай, если связь уже появилась к моменту нового входа
   loadCommittedHistory(); // последние проведённые ЭТИМ пользователем документы
@@ -2872,6 +2873,49 @@ function renderVerifyResultHtml(p, rawText) {
     status: ``,
     rowsHtml: `<div style="background:#fff; border-radius:12px; padding:2px 12px;">${detailRowsToHtml(rows)}</div>`
   };
+}
+// Если страница перезагрузилась (обычная перезагрузка или Android выгрузил
+// вкладку из фона и подгрузил заново — см. showMain()), пока была открыта
+// карточка "Проверки" и человек ничего не нажимал — саму камеру после
+// перезагрузки не восстановить ни в одном браузере (это не наша недоделка,
+// см. объяснение в чате), но результат последнего скана и его замороженное
+// фото (если это был кадр камеры, а не выбор из галереи — см. пометку
+// "data:"/"blob:" при сохранении) — можно и нужно показать заново, чтобы
+// ничего не потерялось. Показываем на самой вкладке "Проверка" (#verifyResult
+// — этот блок раньше был пустой заготовкой без применения), пересчитывая
+// карточку ТЕМИ ЖЕ функциями (parseCode/renderVerifyResultHtml), что и обычный
+// живой скан — не своей отдельной вёрсткой, чтобы не разойтись с ней.
+let lastVerifyScanRestored = false;
+function restoreLastVerifyScan() {
+  if (lastVerifyScanRestored) return;
+  lastVerifyScanRestored = true;
+  try {
+    const raw = sessionStorage.getItem("lastVerifyScanRestore");
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data || !data.rawText) return;
+    // Не подсовываем совсем старый результат (например, из прошлой смены) —
+    // окно восстановления ограничено 2 часами, как обычная рабочая смена.
+    if (!data.savedAt || Date.now() - data.savedAt > 2 * 60 * 60 * 1000) {
+      sessionStorage.removeItem("lastVerifyScanRestore");
+      return;
+    }
+    const p = parseCode(data.rawText);
+    const rendered = renderVerifyResultHtml(p, data.rawText);
+    const box = document.getElementById("verifyResult");
+    if (!box) return;
+    box.innerHTML = `<div class="card" style="border:1px solid var(--warn-border,#ffe4a3); background:var(--warn-bg,#fff6e0);">
+      <div class="muted" style="margin-bottom:8px;">↺ Страница обновилась во время сканирования — вот последний результат, чтобы ничего не потерялось:</div>
+      ${data.photo ? `<img src="${data.photo}" alt="Последнее отсканированное фото" style="max-width:100%; border-radius:12px; margin-bottom:10px; display:block;">` : ""}
+      ${rendered.status}${rendered.rowsHtml}
+      <button type="button" class="btn" id="restoredScanDismissBtn" style="margin-top:10px;">Понятно, скрыть</button>
+    </div>`;
+    const dismissBtn = document.getElementById("restoredScanDismissBtn");
+    if (dismissBtn) dismissBtn.onclick = () => {
+      box.innerHTML = "";
+      try { sessionStorage.removeItem("lastVerifyScanRestore"); } catch (e) {}
+    };
+  } catch (e) {}
 }
 document.getElementById("scanCloseBtn").onclick = closeScanner;
 document.getElementById("scanDoneBtn").onclick = closeScanner;
@@ -4337,6 +4381,25 @@ async function onScanDecoded(decodedText, opts) {
     document.getElementById("scanCheckRows").innerHTML = rendered.rowsHtml;
     document.getElementById("scanCheckStatus").classList.remove("hidden");
     document.getElementById("scanCheckOkBtn").classList.remove("hidden");
+    // Запоминаем этот результат (плюс замороженное фото, если оно того
+    // формата, что переживает перезагрузку страницы — см. ниже) на случай,
+    // если страница перезагрузится/обновится прямо сейчас, пока карточка
+    // ещё открыта (человек ничего не нажимал) — см. restoreLastVerifyScan()
+    // в showMain(), которая покажет то же самое заново на вкладке
+    // «Проверка», а не пустой экран. Стирается при осознанном закрытии
+    // карточки — см. closeQuickEntry()/closeScanner().
+    try {
+      const freezeImgEl = document.getElementById("vfFreezeImg");
+      // "blob:"-адрес (фото, выбранное из галереи) живёт только в памяти
+      // текущей страницы и не переживёт перезагрузку — сохраняем фото только
+      // если это "data:"-адрес (кадр камеры, см. setFreezeSnapshot()).
+      const canPersistPhoto = !!(freezeImgEl && freezeImgEl.src && freezeImgEl.dataset.blobUrl !== "1");
+      sessionStorage.setItem("lastVerifyScanRestore", JSON.stringify({
+        rawText: realText,
+        photo: canPersistPhoto ? freezeImgEl.src : null,
+        savedAt: Date.now()
+      }));
+    } catch (e) {}
     return;
   }
 
@@ -4388,6 +4451,7 @@ function closeQuickEntry() {
   scanLocked = false;
   setViewfinderOk(false); // и после "Добавить", и после "Отменить" — рамка гасится, готова к следующему скану
   clearFreezeSnapshot(); // нажали "Добавить и продолжить сканирование" / "Понятно, сканировать дальше" — замороженное фото прошлого скана убираем
+  try { sessionStorage.removeItem("lastVerifyScanRestore"); } catch (e) {} // карточку осознанно закрыли/подтвердили — восстанавливать её после перезагрузки больше не нужно
 }
 
 // Во время сканирования список внизу по умолчанию показывает только
@@ -4462,6 +4526,7 @@ function closeScanner() {
   stopNativeScanLoop();
   stopDetectionAssistLoop();
   clearFreezeSnapshot(); // закрыли сканер — фото не оставляем "висеть" в памяти
+  try { sessionStorage.removeItem("lastVerifyScanRestore"); } catch (e) {} // сканер закрыли осознанно (✕ или "Готово") — восстанавливать последний результат после перезагрузки уже не нужно
   if (html5QrCode) {
     // .stop() может не только отклонить промис (это уже ловилось через
     // .catch), но и бросить исключение СИНХРОННО — например, если камера так
