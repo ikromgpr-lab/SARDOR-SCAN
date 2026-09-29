@@ -1116,13 +1116,17 @@
           <button type="button" class="link-btn" id="snapWhClearBtn">Сбросить (все склады)</button>
         </div>
         <div id="snapWarehouses" class="wh-checklist"></div>
-        <div class="muted">Ничего не отмечено = все склады. Влияет и на «Текущие», и на «Показать за период».</div>
-        <div class="row2">
-          <div><label class="lbl">С даты</label><input type="date" id="snapDateFrom" /></div>
-          <div><label class="lbl">По дату</label><input type="date" id="snapDateTo" /></div>
+        <div class="muted">Ничего не отмечено = все склады. Влияет и на «Текущие», и на «Показать на дату».</div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+          <label class="lbl" style="margin-top:10px;">СКЮ (отметьте нужные)</label>
+          <button type="button" class="link-btn" id="snapSkuClearBtn">Сбросить (все СКЮ)</button>
         </div>
-        <button class="btn" id="applySnapshotBtn">Показать за период</button>
-        <div class="hint">Показывает исторические снимки остатков (StockHistory) за выбранный период и склады.</div>
+        <div id="snapSkus" class="wh-checklist"></div>
+        <div class="muted">Ничего не отмечено = все СКЮ.</div>
+        <label class="lbl" style="margin-top:10px;">На дату</label>
+        <input type="date" id="snapDate" />
+        <button class="btn" id="applySnapshotBtn">Показать на дату</button>
+        <div class="hint">Показывает конечный остаток на выбранную дату — по последнему сохранённому снимку (StockHistory) на эту дату или раньше. Если на саму дату снимка ещё нет (например, выбрали сегодня до 23:00 или будущую дату) — берётся последний имеющийся снимок.</div>
         <button class="btn secondary" id="snapshotNowBtn">📸 Сделать снимок остатков сейчас</button>
         <div class="hint">Сохраняет текущие остатки всех складов в историю прямо сейчас, не дожидаясь ночного автоснимка.</div>
       </div>
@@ -1551,7 +1555,7 @@ function showFloatingToast(message, type) {
 function saveFilter(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
 function loadFilter(key) { try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function clearSavedFilters() {
-  ["flt_summaryOpType", "flt_summaryDate", "flt_summaryWarehouses", "flt_summarySkus", "flt_snapWarehouses", "flt_snapDateFrom", "flt_snapDateTo"]
+  ["flt_summaryOpType", "flt_summaryDate", "flt_summaryWarehouses", "flt_summarySkus", "flt_snapWarehouses", "flt_snapSkus", "flt_snapDate"]
     .forEach(k => { try { sessionStorage.removeItem(k); } catch (e) {} });
 }
 
@@ -3106,67 +3110,81 @@ document.getElementById("scanFileInput").onchange = async (e) => {
   try {
     let decodedText = null;
     let lastErr = null;
+    let img = null;
+    async function ensureImg() { if (!img) img = await loadImageFromFile(file); return img; }
+
+    // 1) СНАЧАЛА пробуем уменьшенные копии фото, а не оригинал в полном
+    // разрешении. Раньше порядок был обратный (сперва оригинал, и только
+    // при ошибке — уменьшенные копии), и именно это было причиной жалоб на
+    // медленное распознавание фото из галереи: обычное фото с телефона —
+    // это 8-12+ Мп, а декодер (zxing внутри html5-qrcode) на таком большом
+    // кадре и работает заметно дольше, и находит код заметно реже (код на
+    // нём занимает маленькую долю кадра, см. также комментарий ниже) — то
+    // есть человек каждый раз ждал самую долгую И самую редко успешную
+    // попытку первой, а быстрая и обычно успешная (уменьшенная копия)
+    // запускалась только потом. Сам список попыток не изменился — просто
+    // поменяли, что пробуем раньше, а что позже.
     try {
-      decodedText = await scanner.scanFile(file, false);
-    } catch (err1) {
-      lastErr = err1;
-      // Не нашли код на фото "как есть" — по факту (см. ошибку декодера в
-      // консоли, "No MultiFormat Readers were able to detect the code")
-      // это обычно бывает на очень крупных фото (полное разрешение, как
-      // часто отдаёт файловый диалог на десктопе) — код на них занимает
-      // маленькую долю кадра, и JS-декодеру это мешает его найти, хотя сам
-      // код на фото читаемый. Пробуем ещё раз на уменьшенных копиях того же
-      // фото — так декодер видит кадр примерно того же размера, что и
-      // обычное фото с телефона, где всё это уже надёжно работает.
+      await ensureImg();
+      for (const maxSide of [1600, 1000, 700]) {
+        try {
+          const resized = await resizeImageToFile(img, maxSide);
+          if (!resized) continue;
+          decodedText = await scanner.scanFile(resized, false);
+          lastErr = null;
+          break;
+        } catch (err2) { lastErr = err2; }
+      }
+    } catch (loadErr) { /* не смогли загрузить фото как картинку для уменьшения — пробуем сам файл ниже, как раньше */ }
+
+    // 2) Оригинал в полном разрешении — теперь последний из "основных"
+    // вариантов (самый медленный, и по опыту реже успешный на больших фото
+    // с телефона), а не первый.
+    if (decodedText == null) {
       try {
-        const img = await loadImageFromFile(file);
-        for (const maxSide of [1600, 1000, 700]) {
-          try {
-            const resized = await resizeImageToFile(img, maxSide);
-            if (!resized) continue;
-            decodedText = await scanner.scanFile(resized, false);
-            lastErr = null;
-            break;
-          } catch (err2) { lastErr = err2; }
+        decodedText = await scanner.scanFile(file, false);
+        lastErr = null;
+      } catch (err1) { lastErr = err1; }
+    }
+
+    if (decodedText == null) {
+      // Ни один размер не помог основному декодеру (zxing) — пробуем
+      // совсем другой, независимый декодер (jsQR, см. tryJsQR выше) на
+      // той же картинке. На реальном фото пользователя именно это и
+      // сработало: zxing внутри html5-qrcode код не находил, а jsQR
+      // прочитал его сразу же, без всякого уменьшения.
+      try {
+        await ensureImg();
+        const jsqrResult = tryJsQR(img);
+        if (jsqrResult != null) { decodedText = jsqrResult; lastErr = null; }
+      } catch (err3) { /* jsQR не подключился/не смог — не критично, остаёмся при исходной ошибке из lastErr */ }
+    }
+    if (decodedText == null) {
+      // Разобрано на реальном случае: фото могло сжаться со сглаживанием
+      // при пересылке/сохранении (например, через мессенджер) — резкие
+      // чёрно-белые края кода превращаются в размытые полутона, и это
+      // мешает и zxing, и jsQR. Последний шанс — принудительно вернуть
+      // фото к чистому чёрно-белому виду (метод Оцу, см. функции выше) и
+      // попробовать распознать эту версию и через jsQR, и через zxing
+      // (второе — на случай штрихкода CODE_128, который jsQR не умеет).
+      try {
+        await ensureImg();
+        const bwCanvas = binarizeImageToCanvas(img);
+        if (bwCanvas) {
+          const bwCtx = bwCanvas.getContext("2d");
+          const bwImageData = bwCtx.getImageData(0, 0, bwCanvas.width, bwCanvas.height);
+          if (typeof window.jsQR === "function") {
+            const code = window.jsQR(bwImageData.data, bwCanvas.width, bwCanvas.height);
+            if (code) { decodedText = code.data; lastErr = null; }
+          }
+          if (decodedText == null) {
+            try {
+              const bwFile = await canvasToFile(bwCanvas);
+              if (bwFile) { decodedText = await scanner.scanFile(bwFile, false); lastErr = null; }
+            } catch (err4) { lastErr = err4; }
+          }
         }
-        if (decodedText == null) {
-          // Ни один размер не помог основному декодеру (zxing) — пробуем
-          // совсем другой, независимый декодер (jsQR, см. tryJsQR выше) на
-          // той же картинке. На реальном фото пользователя именно это и
-          // сработало: zxing внутри html5-qrcode код не находил, а jsQR
-          // прочитал его сразу же, без всякого уменьшения.
-          try {
-            const jsqrResult = tryJsQR(img);
-            if (jsqrResult != null) { decodedText = jsqrResult; lastErr = null; }
-          } catch (err3) { /* jsQR не подключился/не смог — не критично, остаёмся при исходной ошибке из lastErr */ }
-        }
-        if (decodedText == null) {
-          // Разобрано на реальном случае: фото могло сжаться со сглаживанием
-          // при пересылке/сохранении (например, через мессенджер) — резкие
-          // чёрно-белые края кода превращаются в размытые полутона, и это
-          // мешает и zxing, и jsQR. Последний шанс — принудительно вернуть
-          // фото к чистому чёрно-белому виду (метод Оцу, см. функции выше) и
-          // попробовать распознать эту версию и через jsQR, и через zxing
-          // (второе — на случай штрихкода CODE_128, который jsQR не умеет).
-          try {
-            const bwCanvas = binarizeImageToCanvas(img);
-            if (bwCanvas) {
-              const bwCtx = bwCanvas.getContext("2d");
-              const bwImageData = bwCtx.getImageData(0, 0, bwCanvas.width, bwCanvas.height);
-              if (typeof window.jsQR === "function") {
-                const code = window.jsQR(bwImageData.data, bwCanvas.width, bwCanvas.height);
-                if (code) { decodedText = code.data; lastErr = null; }
-              }
-              if (decodedText == null) {
-                try {
-                  const bwFile = await canvasToFile(bwCanvas);
-                  if (bwFile) { decodedText = await scanner.scanFile(bwFile, false); lastErr = null; }
-                } catch (err4) { lastErr = err4; }
-              }
-            }
-          } catch (err5) { /* бинаризация не удалась — не критично, остаёмся при исходной ошибке */ }
-        }
-      } catch (loadErr) { /* не смогли даже загрузить фото как картинку — оставляем исходную ошибку из lastErr */ }
+      } catch (err5) { /* бинаризация не удалась — не критично, остаёмся при исходной ошибке */ }
     }
     if (decodedText == null) throw (lastErr || new Error("код не найден"));
     // Заморозка в рамке — тут показываем именно САМУ выбранную фотографию
@@ -4940,30 +4958,61 @@ async function setupSnapshotFilter() {
   document.getElementById("snapshotFilterCard").classList.remove("hidden");
   renderWhChecklist("snapWarehouses", () => { saveFilter("flt_snapWarehouses", getWhChecked("snapWarehouses")); debouncedLoadStock(); });
   restoreWhChecklist("snapWarehouses", loadFilter("flt_snapWarehouses"));
+  // Чек-лист СКЮ — та же пара функций, что и в "Сводке" (renderSkuChecklist/
+  // getSkuChecked и т.д.), просто с другим containerId ("snapSkus" вместо
+  // "summarySkus"). Как и список складов выше, перерисовываем при каждом
+  // заходе на вкладку — справочник skuList может подгрузиться позже первого
+  // открытия "Остатков".
+  renderSkuChecklist("snapSkus", () => { saveFilter("flt_snapSkus", getSkuChecked("snapSkus")); applySnapshot(); });
+  restoreSkuChecklist("snapSkus", loadFilter("flt_snapSkus"));
   const today = new Date().toISOString().slice(0,10);
-  document.getElementById("snapDateFrom").value = loadFilter("flt_snapDateFrom") || today;
-  document.getElementById("snapDateTo").value = loadFilter("flt_snapDateTo") || today;
+  document.getElementById("snapDate").value = loadFilter("flt_snapDate") || today;
 }
-document.getElementById("snapDateFrom").addEventListener("change", () => saveFilter("flt_snapDateFrom", document.getElementById("snapDateFrom").value));
-document.getElementById("snapDateTo").addEventListener("change", () => saveFilter("flt_snapDateTo", document.getElementById("snapDateTo").value));
+document.getElementById("snapDate").addEventListener("change", () => saveFilter("flt_snapDate", document.getElementById("snapDate").value));
 document.getElementById("snapWhClearBtn").onclick = () => { clearWhChecklist("snapWarehouses"); saveFilter("flt_snapWarehouses", []); loadStock(); };
+document.getElementById("snapSkuClearBtn").onclick = () => { clearSkuChecklist("snapSkus"); saveFilter("flt_snapSkus", []); applySnapshot(); };
 
-document.getElementById("applySnapshotBtn").onclick = async () => {
+// Раньше "Показать за период" буквально фильтровал StockHistory по диапазону
+// дат "с"/"по" — если снимок именно на выбранную дату ещё не был сделан
+// (например, выбрали сегодня до 23:00, когда идёт автоснимок, или вообще
+// будущую дату), результат был просто пустым: "Нет данных". По просьбе —
+// теперь это ОДНА дата ("на дату"), и результат — конечный остаток НА эту
+// дату: берём все снимки, сделанные на эту дату или раньше (dateFrom не
+// передаём вовсе — бэкенд без него не ограничивает снизу, см. getSnapshot()
+// в Code.gs, здесь ничего не меняли), и для каждого склада+партии+даты
+// производства оставляем только САМЫЙ ПОЗДНИЙ по дате снимка — то есть
+// последний известный остаток на момент выбранной даты. Если для складов на
+// сегодня/будущую дату ещё нет своего снимка — подставится последний
+// имеющийся (обычно вчерашний ночной), это и есть "на основе последних
+// остатков", как просили.
+async function applySnapshot() {
   const chosen = getWhChecked("snapWarehouses");
   const warehouses = chosen.length ? chosen.join(",") : "ALL";
-  const dateFrom = document.getElementById("snapDateFrom").value;
-  const dateTo = document.getElementById("snapDateTo").value;
-  document.getElementById("stockScopeLabel").textContent = `— снимок за период ${dateFrom} — ${dateTo}, ${chosen.length ? chosen.join(", ") : "все склады"}`;
+  const dateTo = document.getElementById("snapDate").value || new Date().toISOString().slice(0,10);
+  document.getElementById("stockScopeLabel").textContent = `— конечный остаток на ${dateTo.split("-").reverse().join(".")}, ${chosen.length ? chosen.join(", ") : "все склады"}`;
   const el = document.getElementById("stockTable");
   el.innerHTML = "Загрузка…";
   const myToken = ++stockReqToken; // делит счётчик с loadStock() — тот же #stockTable, та же защита от гонки ответов
   try {
-    const r = await apiGet({ action: "snapshot", warehouses, dateFrom, dateTo });
+    const r = await apiGet({ action: "snapshot", warehouses, dateTo });
     if (myToken !== stockReqToken) return;
-    lastStockRows = r.snapshot || [];
+    // Оставляем по каждому складу+партии+дате производства только запись с
+    // максимальной snapDate (<= выбранной даты, это уже гарантировано
+    // бэкендом) — конечный остаток на выбранную дату.
+    const latestByKey = {};
+    (r.snapshot || []).forEach(row => {
+      const k = row.warehouse + "|" + row.lot + "|" + row.prodDate;
+      if (!latestByKey[k] || row.snapDate > latestByKey[k].snapDate) latestByKey[k] = row;
+    });
+    let rows = Object.values(latestByKey).filter(row => row.qty !== 0);
+    const skuCodes = getSkuChecked("snapSkus");
+    if (skuCodes.length) rows = rows.filter(row => skuCodes.indexOf(String(row.lot)) !== -1);
+    rows.sort((a,b) => a.warehouse.localeCompare(b.warehouse) || a.lot.localeCompare(b.lot) || a.prodDate.localeCompare(b.prodDate));
+    lastStockRows = rows;
     renderStockTable(lastStockRows, true, true);
   } catch (e) { if (myToken === stockReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
-};
+}
+document.getElementById("applySnapshotBtn").onclick = applySnapshot;
 
 document.getElementById("snapshotNowBtn").onclick = async () => {
   try {
