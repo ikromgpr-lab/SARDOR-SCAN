@@ -1376,6 +1376,12 @@ let shopsList = [];       // список цехов (лист "Shops") — дл
 let skuList = [];         // [{code,name,group}, ...] — справочник СКЮ с сервера
 let skuCodesSet = null;   // Set нормализованных кодов для быстрой проверки при сканировании
 let scanLocked = false;
+// Пока разбирается фото из галереи (см. scanFileInput.onchange ниже) — на
+// это же время временно останавливаем и живой цикл сканирования камерой
+// (nativeScanLoop, см. ниже), чтобы оба декодера не грузили процессор
+// одновременно: по просьбе — иначе разбор фото из галереи заметно тормозит,
+// потому что камера в фоне продолжает сканировать кадр за кадром.
+let fileScanBusy = false;
 // Главный экран (setupModes и т.п.) намеренно рисуется СРАЗУ при входе, не
 // дожидаясь ответа сервера со справочниками (см. showMain ниже) — чтобы
 // "Операции" не выглядели пустыми/пропавшими первую секунду на медленной
@@ -3126,6 +3132,13 @@ document.getElementById("scanFileInput").onchange = async (e) => {
     return;
   }
   if (hint) { hint.classList.remove("warn-flash"); hint.textContent = "⏳ Читаю фото…"; }
+  // По просьбе: пока разбираем фото из галереи, живая камера в фоне не
+  // должна параллельно сканировать кадр за кадром — оба декодера одновременно
+  // заметно грузят процессор именно на телефоне, отсюда и медленный разбор
+  // фото. fileScanBusy проверяется в nativeScanLoop() и в
+  // startDetectionAssistLoop() (см. их код) — сбрасываем обязательно через
+  // finally ниже, что бы ни случилось (успех, ошибка, код не найден).
+  fileScanBusy = true;
   try {
     let decodedText = null;
     let lastErr = null;
@@ -3221,6 +3234,8 @@ document.getElementById("scanFileInput").onchange = async (e) => {
     // конкретного браузера/устройства при разборе фото.
     console.warn("scanFile:", err);
     flashReject("✕ На этом фото код не найден");
+  } finally {
+    fileScanBusy = false;
   }
 };
 
@@ -3615,7 +3630,7 @@ async function startNativeScanLoop() {
   let detectFrameCounter = 0;
   const loop = async () => {
     if (!nativeScanActive) return; // сканер закрыт — цикл остановлен
-    if (!scanLocked && !busy) {
+    if (!scanLocked && !busy && !fileScanBusy) {
       busy = true;
       try {
         const videoEl = document.querySelector("#reader video");
@@ -4295,7 +4310,7 @@ function startDetectionAssistLoop() {
   detectAssistCanvas = document.createElement("canvas");
   detectAssistCtx = detectAssistCanvas.getContext("2d", { willReadFrequently: true });
   detectAssistTimer = setInterval(() => {
-    if (scanLocked) { resetDetectionState(); return; }
+    if (scanLocked || fileScanBusy) { resetDetectionState(); return; }
     try {
       const videoEl = document.querySelector("#reader video");
       if (!videoEl || videoEl.readyState < 2) return;
