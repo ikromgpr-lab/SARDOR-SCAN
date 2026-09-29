@@ -850,6 +850,25 @@
   .zoom-btn:active { background:rgba(34,211,238,.35); border-color:var(--tech-bright); }
   .zoom-range {
     flex:1; width:4px; border-radius:2px; margin:0; padding:0;
+    /* min-height:0 — это и есть настоящая причина, почему кнопка "+" всё
+       время оказывалась снаружи рамки (min-height:150px на .zoom-slider-wrap
+       выше эту причину не устранял, только подстраховывал на очень маленьких
+       рамках — вот почему та правка не помогла). У флекс-элементов браузер
+       по умолчанию считает min-height:auto, а для <input> это НЕ 0, а его
+       собственная "естественная" длина — на вертикальном range (см.
+       writing-mode/-webkit-appearance ниже) это далеко не 4px из строки выше,
+       а обычная длина слайдера "как у горизонтального", просто повёрнутая,
+       обычно больше, чем есть места в рамке. Из-за этого flex:1 не мог
+       сжать сам слайдер до нужного размера, весь блок "не влезал" в заданную
+       высоту .zoom-slider-wrap, и поскольку overflow там не задан (обычный
+       visible), лишнее вылезало НАРУЖУ за пределы скруглённого фона — именно
+       сверху, в сторону кнопки "+" (там, где заканчивается контент при
+       column-reverse, см. комментарий у .zoom-slider-wrap), а не в сторону
+       "−" (та кнопка стоит у самого края, откуда идёт раскладка, поэтому
+       всегда оставалась на месте). min-height:0 явно разрешает слайдеру
+       сжиматься — тогда flex:1 наконец работает как надо, и обе кнопки
+       остаются внутри одного и того же фона. */
+    min-height:0;
     /* Вертикальная ориентация: современный способ (writing-mode, Firefox и
        новый Chrome) + старый -webkit-appearance:slider-vertical как основной
        рабочий вариант для мобильного Chrome/Android, на который рассчитано
@@ -3113,38 +3132,35 @@ document.getElementById("scanFileInput").onchange = async (e) => {
     let img = null;
     async function ensureImg() { if (!img) img = await loadImageFromFile(file); return img; }
 
-    // 1) СНАЧАЛА пробуем уменьшенные копии фото, а не оригинал в полном
-    // разрешении. Раньше порядок был обратный (сперва оригинал, и только
-    // при ошибке — уменьшенные копии), и именно это было причиной жалоб на
-    // медленное распознавание фото из галереи: обычное фото с телефона —
-    // это 8-12+ Мп, а декодер (zxing внутри html5-qrcode) на таком большом
-    // кадре и работает заметно дольше, и находит код заметно реже (код на
-    // нём занимает маленькую долю кадра, см. также комментарий ниже) — то
-    // есть человек каждый раз ждал самую долгую И самую редко успешную
-    // попытку первой, а быстрая и обычно успешная (уменьшенная копия)
-    // запускалась только потом. Сам список попыток не изменился — просто
-    // поменяли, что пробуем раньше, а что позже.
+    // ВОЗВРАЩЕНО К ИСХОДНОМУ ПОРЯДКУ: пробовали "оптимизировать" — сначала
+    // уменьшенные копии, оригинал последним — рассуждение было, что оригинал
+    // в полном разрешении почти всегда и медленный, и редко успешный. На
+    // практике для этого человека оказалось наоборот: фото из галереи
+    // распознавалось МОМЕНТАЛЬНО именно на оригинале, а принудительный
+    // пережим в JPEG при уменьшении (см. resizeImageToFile — canvas + toBlob
+    // с качеством 0.92) на некоторых фото, судя по всему, слегка портит
+    // резкость чёрно-белых краёв кода, и декодер после пережатой копии
+    // находит код хуже, а не лучше — то есть "оптимизация" на деле сделала
+    // обычный случай медленнее (лишний проход через уменьшение перед тем,
+    // как всё равно дойти до оригинала) или вовсе неудачным. Возвращаем как
+    // было: оригинал — первая попытка, уменьшенные копии — запасной вариант
+    // только если оригинал не сработал.
     try {
-      await ensureImg();
-      for (const maxSide of [1600, 1000, 700]) {
-        try {
-          const resized = await resizeImageToFile(img, maxSide);
-          if (!resized) continue;
-          decodedText = await scanner.scanFile(resized, false);
-          lastErr = null;
-          break;
-        } catch (err2) { lastErr = err2; }
-      }
-    } catch (loadErr) { /* не смогли загрузить фото как картинку для уменьшения — пробуем сам файл ниже, как раньше */ }
-
-    // 2) Оригинал в полном разрешении — теперь последний из "основных"
-    // вариантов (самый медленный, и по опыту реже успешный на больших фото
-    // с телефона), а не первый.
-    if (decodedText == null) {
+      decodedText = await scanner.scanFile(file, false);
+    } catch (err1) {
+      lastErr = err1;
       try {
-        decodedText = await scanner.scanFile(file, false);
-        lastErr = null;
-      } catch (err1) { lastErr = err1; }
+        await ensureImg();
+        for (const maxSide of [1600, 1000, 700]) {
+          try {
+            const resized = await resizeImageToFile(img, maxSide);
+            if (!resized) continue;
+            decodedText = await scanner.scanFile(resized, false);
+            lastErr = null;
+            break;
+          } catch (err2) { lastErr = err2; }
+        }
+      } catch (loadErr) { /* не смогли загрузить фото как картинку для уменьшения — остаёмся при исходной ошибке */ }
     }
 
     if (decodedText == null) {
@@ -5007,7 +5023,13 @@ async function applySnapshot() {
     let rows = Object.values(latestByKey).filter(row => row.qty !== 0);
     const skuCodes = getSkuChecked("snapSkus");
     if (skuCodes.length) rows = rows.filter(row => skuCodes.indexOf(String(row.lot)) !== -1);
-    rows.sort((a,b) => a.warehouse.localeCompare(b.warehouse) || a.lot.localeCompare(b.lot) || a.prodDate.localeCompare(b.prodDate));
+    // String(...) на lot — намеренно (баг из-за этого и был): "Код СКЮ" в
+    // самой Google Таблице (StockHistory) у части строк может быть сохранён
+    // как число, а не текст (в отличие от "Текущих", где lot всегда строка —
+    // см. getStock() в Code.gs, там код собирается через склейку строкового
+    // ключа). localeCompare есть только у строк — на числовом значении и
+    // упало с ошибкой "a.lot.localeCompare is not a function".
+    rows.sort((a,b) => String(a.warehouse).localeCompare(String(b.warehouse)) || String(a.lot).localeCompare(String(b.lot)) || String(a.prodDate).localeCompare(String(b.prodDate)));
     lastStockRows = rows;
     renderStockTable(lastStockRows, true, true);
   } catch (e) { if (myToken === stockReqToken) el.innerHTML = `<div class="err">Ошибка загрузки: ${e}</div>`; }
