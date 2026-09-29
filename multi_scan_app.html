@@ -830,6 +830,16 @@
     background:rgba(0,0,0,.42); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
     border:1px solid rgba(255,255,255,.18); border-radius:24px; padding:14px 9px;
     height:min(38vh, 230px); width:auto;
+    /* min-height — подстраховка: alignZoomSliderToViewfinder() (JS) иногда
+       выставляет высоту ровно по рамке .viewfinder инлайн-стилем, и если та
+       рамка на экране получается низкой, высоты не хватало даже на сами
+       кнопки "+"/"−" с их отступами — кнопка "+" (она визуально сверху, см.
+       column-reverse выше) вылезала за пределы скруглённого фона наружу,
+       выглядя "отдельно", в то время как "−" внизу оставалась внутри.
+       min-height не даёт высоте уйти ниже суммы двух кнопок + отступов между
+       ними и паддинга контейнера — тогда обе кнопки всегда остаются внутри
+       одного и того же скруглённого фона, симметрично. */
+    min-height:150px;
   }
   .zoom-slider-wrap.hidden { display:none; }
   .zoom-btn {
