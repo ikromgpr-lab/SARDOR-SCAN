@@ -3504,9 +3504,12 @@ function openScanner() {
     },
     (text) => {
       if (!nativeScanActive) {
+        // Снимок берём сразу (кадр камеры прямо сейчас), но фиксируем его в
+        // рамке (setFreezeSnapshot) только если onScanDecoded подтвердит код
+        // валидным — иначе на отклонённом коде рамка "застывала" бы на чужом/
+        // неверном кадре. См. блок opts.freezeSnapshotUrl внутри onScanDecoded.
         const snap = captureViewfinderSnapshotFromVideo();
-        if (snap) setFreezeSnapshot(snap);
-        onScanDecoded(text);
+        onScanDecoded(text, snap ? { freezeSnapshotUrl: snap } : undefined);
       }
     },
     () => {}
@@ -3674,8 +3677,13 @@ async function startNativeScanLoop() {
             if (detectFrameCounter % 2 === 0) processDetectionFrame(nativeScanCanvas);
             const codes = await nativeDetector.detect(nativeScanCanvas);
             if (codes && codes.length && nativeScanActive) {
-              try { setFreezeSnapshot(nativeScanCanvas.toDataURL("image/jpeg", 0.85)); } catch (e) {}
-              onScanDecoded(codes[0].rawValue);
+              // Как и в html5-qrcode-колбэке выше: кадр берём сейчас, но
+              // фиксируем в рамке только если код пройдёт проверку внутри
+              // onScanDecoded (свой формат/СКЮ/дата) — иначе рамка не должна
+              // "застывать" на отклонённом коде.
+              let snap = null;
+              try { snap = nativeScanCanvas.toDataURL("image/jpeg", 0.85); } catch (e) {}
+              onScanDecoded(codes[0].rawValue, snap ? { freezeSnapshotUrl: snap } : undefined);
             }
           }
         }
@@ -4423,15 +4431,19 @@ async function onScanDecoded(decodedText, opts) {
   playBeep(); // короткий сигнал об успешном сканировании (можно выключить кнопкой 🔊 рядом с фонариком)
   setViewfinderOk(true); // рамка загорается зелёным и держится, пока не закрыта карточка
 
-  // Заморозка фото из галереи (opts.freezePhotoFile, см. scanFileInput.onchange)
-  // — именно здесь, а не раньше: все проверки выше (свой формат, дата не в
-  // будущем, код есть в справочнике СКЮ) уже пройдены, значит фото и правда
-  // стоит "зафиксировать" — по просьбе, отклонённое фото в рамке не остаётся.
-  // Для живой камеры заморозка устроена иначе и не трогается — там кадр
-  // фиксируется сам вызывающий код ДО onScanDecoded (см. nativeScanLoop и
-  // html5QrCode-колбэк выше), это осознанно не меняем.
+  // Заморозка кадра/фото — именно здесь, а не раньше: все проверки выше
+  // (свой формат, дата не в будущем, код есть в справочнике СКЮ) уже
+  // пройдены, значит кадр и правда стоит "зафиксировать" в рамке — отклонённый
+  // код (чужой QR, дата в будущем, не найден в справочнике) в рамке не
+  // остаётся, ни с камеры, ни с фото из галереи.
+  // opts.freezePhotoFile — фото из галереи (см. scanFileInput.onchange).
+  // opts.freezeSnapshotUrl — кадр живой камеры (см. nativeScanLoop и
+  // html5QrCode-колбэк выше); снимок кадра там берётся сразу (это недорого),
+  // а сама фиксация в рамке — только тут, после проверки.
   if (opts && opts.freezePhotoFile) {
     try { setFreezeSnapshot(URL.createObjectURL(opts.freezePhotoFile)); } catch (e) {}
+  } else if (opts && opts.freezeSnapshotUrl) {
+    try { setFreezeSnapshot(opts.freezeSnapshotUrl); } catch (e) {}
   }
 
   if (verifyOnlyMode) {
