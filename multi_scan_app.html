@@ -3144,6 +3144,84 @@ function canvasToFile(canvas) {
   });
 }
 
+// ---------- разбор фото: "починка" мелких повреждений (морфология) как самый последний шанс ----------
+// По просьбе добавлен ЕЩЁ ОДИН запасной шаг — после того как не помог даже
+// чёрно-белый вариант (Оцу) выше. ВАЖНО ЧЕСТНО обозначить, для чего именно
+// это помогает, а для чего нет (проверено на реальном тесте с фото этикетки,
+// закрашенной маркером): это НЕ увеличивает защиту кода сверх уровня ecc,
+// зашитого при печати (математика Рида-Соломона тут вообще ни при чём) — это
+// просто чистит РАЗРОЗНЕННЫЙ шум на уже полученной чёрно-белой картинке
+// (мелкая пыль, царапины в один-два пикселя, слегка выцветшие/смазанные
+// края модулей) — то есть ровно то, для чего сама защита ecc и рассчитана, но
+// чему иногда мешает не сама повреждённость кода, а то, как декодер СЧИТЫВАЕТ
+// уже слегка зашумлённую картинку. Против СПЛОШНОГО закрашенного пятна
+// (толстый маркер, скотch, большая клякса) — не поможет и не должно: такое
+// повреждение убирается не чисткой шума, а физически (см. предыдущий
+// разговор про Рид-Соломон и тест с меткой поверх QR).
+// Техника стандартная (морфологическое "закрытие" + "открытие", 3×3 окно):
+// - "закрытие" (dilate затем erode) заращивает мелкие БЕЛЫЕ дырки внутри
+//   чёрных модулей — то, что оставляют потёртости/выцветание;
+// - "открытие" (erode затем dilate) убирает мелкий ЧЁРНЫЙ мусор на белом
+//   фоне — то, что оставляют пыль/грязь/пятнышки.
+function erode3x3(bin, w, h) {
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let v = 1;
+      for (let dy = -1; dy <= 1 && v; dy++) {
+        const ny = y + dy;
+        for (let dx = -1; dx <= 1 && v; dx++) {
+          const nx = x + dx;
+          const nv = (nx >= 0 && nx < w && ny >= 0 && ny < h) ? bin[ny * w + nx] : 0;
+          if (!nv) v = 0;
+        }
+      }
+      out[y * w + x] = v;
+    }
+  }
+  return out;
+}
+function dilate3x3(bin, w, h) {
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let v = 0;
+      for (let dy = -1; dy <= 1 && !v; dy++) {
+        const ny = y + dy;
+        for (let dx = -1; dx <= 1 && !v; dx++) {
+          const nx = x + dx;
+          const nv = (nx >= 0 && nx < w && ny >= 0 && ny < h) ? bin[ny * w + nx] : 0;
+          if (nv) v = 1;
+        }
+      }
+      out[y * w + x] = v;
+    }
+  }
+  return out;
+}
+function morphologicalRepairCanvas(bwCanvas) {
+  const w = bwCanvas.width, h = bwCanvas.height;
+  if (!w || !h) return null;
+  const ctx = bwCanvas.getContext("2d");
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+  let bin = new Uint8Array(w * h);
+  for (let i = 0, j = 0; i < data.length; i += 4, j++) bin[j] = data[i] < 128 ? 1 : 0; // 1 = чёрный модуль
+  bin = erode3x3(dilate3x3(bin, w, h), w, h);   // закрытие: заращиваем мелкие белые дырки в чёрном
+  bin = dilate3x3(erode3x3(bin, w, h), w, h);   // открытие: убираем мелкий чёрный мусор на белом
+  const outCanvas = document.createElement("canvas");
+  outCanvas.width = w; outCanvas.height = h;
+  const outCtx = outCanvas.getContext("2d");
+  const outData = outCtx.createImageData(w, h);
+  for (let i = 0, j = 0; i < outData.data.length; i += 4, j++) {
+    const v = bin[j] ? 0 : 255;
+    outData.data[i] = outData.data[i + 1] = outData.data[i + 2] = v;
+    outData.data[i + 3] = 255;
+  }
+  outCtx.putImageData(outData, 0, 0);
+  return outCanvas;
+}
+
 let fileScanner = null;
 function getFileScanner() {
   if (fileScanner) return fileScanner;
@@ -3290,6 +3368,34 @@ document.getElementById("scanFileInput").onchange = async (e) => {
           }
         }
       } catch (err5) { /* бинаризация не удалась — не критично, остаёмся при исходной ошибке */ }
+    }
+    if (decodedText == null) {
+      // Самый последний шанс — "починка" мелкого разрозненного шума на
+      // чёрно-белой картинке (см. morphologicalRepairCanvas выше: пыль,
+      // царапины в пару пикселей, слегка выцветшие края модулей). Специально
+      // НЕ помогает против сплошного закрашенного пятна — это подтверждено
+      // тестом (см. разговор про метку поверх QR) и ожидаемо: тут чистится
+      // именно шум при чтении, а не физическое повреждение кода.
+      if (hint) hint.textContent = "⏳ Пробую починить мелкие повреждения…";
+      try {
+        await ensureImg();
+        const bwCanvas2 = binarizeImageToCanvas(img);
+        const repaired = bwCanvas2 ? morphologicalRepairCanvas(bwCanvas2) : null;
+        if (repaired) {
+          if (typeof window.jsQR === "function") {
+            const rCtx = repaired.getContext("2d");
+            const rImageData = rCtx.getImageData(0, 0, repaired.width, repaired.height);
+            const code = window.jsQR(rImageData.data, repaired.width, repaired.height);
+            if (code) { decodedText = code.data; lastErr = null; }
+          }
+          if (decodedText == null) {
+            try {
+              const repairedFile = await canvasToFile(repaired);
+              if (repairedFile) { decodedText = await scanner.scanFile(repairedFile, false); lastErr = null; }
+            } catch (err6) { lastErr = err6; }
+          }
+        }
+      } catch (err7) { /* починка не удалась — не критично, остаёмся при исходной ошибке */ }
     }
     if (decodedText == null) throw (lastErr || new Error("код не найден"));
     // Заморозка в рамке — по просьбе: раньше фото замораживали ЗДЕСЬ, сразу
