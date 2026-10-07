@@ -3634,6 +3634,7 @@ function openScanner() {
   // это удваивает нагрузку на процессор телефона — тоже прямая причина "долго
   // сканирует" на не самых мощных устройствах.
   nativeScanActive = false;
+  resetLiveScanConfirm(); // новое открытие сканера — старый счётчик подтверждения (если остался) не должен влиять на первый же кадр
   // Размер qrbox — РОВНО как у видимой рамки .viewfinder на экране (а не
   // фиксированные 280×280, как было раньше): qrbox — это зона распознавания
   // резервного JS-декодера html5-qrcode, который включается на устройствах
@@ -3674,8 +3675,10 @@ function openScanner() {
         // рамке (setFreezeSnapshot) только если onScanDecoded подтвердит код
         // валидным — иначе на отклонённом коде рамка "застывала" бы на чужом/
         // неверном кадре. См. блок opts.freezeSnapshotUrl внутри onScanDecoded.
+        // confirmLiveScan (не сразу onScanDecoded) — требует тот же текст два
+        // кадра подряд, см. комментарий у pendingConfirmText выше.
         const snap = captureViewfinderSnapshotFromVideo();
-        onScanDecoded(text, snap ? { freezeSnapshotUrl: snap } : undefined);
+        confirmLiveScan(text, snap ? { freezeSnapshotUrl: snap } : undefined);
       }
     },
     () => {}
@@ -3846,10 +3849,12 @@ async function startNativeScanLoop() {
               // Как и в html5-qrcode-колбэке выше: кадр берём сейчас, но
               // фиксируем в рамке только если код пройдёт проверку внутри
               // onScanDecoded (свой формат/СКЮ/дата) — иначе рамка не должна
-              // "застывать" на отклонённом коде.
+              // "застывать" на отклонённом коде. confirmLiveScan (не сразу
+              // onScanDecoded) — требует тот же текст два кадра подряд, см.
+              // комментарий у pendingConfirmText выше.
               let snap = null;
               try { snap = nativeScanCanvas.toDataURL("image/jpeg", 0.85); } catch (e) {}
-              onScanDecoded(codes[0].rawValue, snap ? { freezeSnapshotUrl: snap } : undefined);
+              confirmLiveScan(codes[0].rawValue, snap ? { freezeSnapshotUrl: snap } : undefined);
             }
           }
         }
@@ -3868,6 +3873,7 @@ function stopNativeScanLoop() {
   if (nativeScanRAFId) { cancelAnimationFrame(nativeScanRAFId); nativeScanRAFId = null; }
   nativeScanCanvas = null; nativeScanCtx = null;
   resetDetectionState();
+  resetLiveScanConfirm(); // новая сессия сканера должна подтверждать код с нуля, а не донашивать счётчик с прошлого открытия
 }
 
 function setupTorchButton() {
@@ -4122,6 +4128,44 @@ let futureDateFlashTimer = null;
 let lastRejectText = "";
 let lastRejectAt = 0;
 const REJECT_REPEAT_COOLDOWN_MS = 1300; // не долбить звуком/текстом на каждый кадр одного и того же чужого кода
+
+// ---------- подтверждение результата живого сканирования (телефон/компьютер читают разное) ----------
+// Баг: на разных устройствах рамка-видоискатель на экране — это ОДНО и то же
+// CSS-место, но камеры возвращают кадр разного разрешения/соотношения сторон,
+// поэтому даже аккуратный пересчёт рамки в координаты видео (см.
+// computeViewfinderCropRect выше) на какой-то доле кадров может зацепить
+// краешек СОСЕДНЕГО кода на листе/этикетке, а не тот, что человек навёл в
+// рамку. И QR, и CODE_128 защищены контрольной суммой — поэтому декодер не
+// выдаёт "кашу", а честно прочитывает настоящий, другой, реально существующий
+// код соседней партии — отсюда разные результаты на телефоне и на компьютере
+// при наведении на один и тот же код. Раньше ОДИН успешно прочитанный кадр
+// сразу уходил в onScanDecoded — теперь требуем, чтобы два кадра ПОДРЯД дали
+// ОДИНАКОВЫЙ текст, и только тогда принимаем результат. Случайный "соседний"
+// код почти никогда не повторяется два раза подряд (рука/камера чуть
+// шевелится, кадр перескакивает), а настоящий нужный код, на который
+// человек держит камеру, читается стабильно много кадров подряд — поэтому
+// проверка не замедляет обычное сканирование (лишний кадр — это ~50мс при
+// 20 fps), но отсекает именно этот случайный "чужой кадр". Применяется
+// только к живой камере (см. confirmLiveScan ниже) — к фото из галереи не
+// относится: там кадр один, подтверждать его "ещё раз" нечем и не нужно.
+let pendingConfirmText = null;
+let pendingConfirmCount = 0;
+const LIVE_SCAN_CONFIRM_FRAMES = 2;
+function resetLiveScanConfirm() {
+  pendingConfirmText = null;
+  pendingConfirmCount = 0;
+}
+function confirmLiveScan(decodedText, opts) {
+  if (decodedText === pendingConfirmText) {
+    pendingConfirmCount++;
+  } else {
+    pendingConfirmText = decodedText;
+    pendingConfirmCount = 1;
+  }
+  if (pendingConfirmCount < LIVE_SCAN_CONFIRM_FRAMES) return; // ждём повтора на следующем кадре
+  resetLiveScanConfirm(); // подтвердили — следующий код (в т.ч. этот же, если откроют карточку снова) пусть подтверждается с нуля
+  onScanDecoded(decodedText, opts);
+}
 
 // ---------- расшифровка QR-кода (защита от посторонних сканеров) ----------
 // Новые этикетки печатают QR-код, в который данные ("СКЮ-дата") зашиты не
