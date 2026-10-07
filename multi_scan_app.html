@@ -442,6 +442,16 @@
 
   /* ---------- ПОЛНОЭКРАННЫЙ СКАНЕР ---------- */
   .scan-overlay { position:fixed; inset:0; z-index:999; background:#000; display:flex; flex-direction:column; }
+  /* Подсветка при перетаскивании фото в окно сканера (drag-and-drop, только
+     компьютер — см. scanOverlayEl.addEventListener("dragover"...) в JS).
+     outline, а не border — не меняет раскладку/размеры элементов внутри. */
+  .scan-overlay.drag-over { outline:3px dashed #4da3ff; outline-offset:-3px; }
+  .scan-overlay.drag-over::after {
+    content: "Отпустите, чтобы распознать фото";
+    position:absolute; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.55); color:#fff; font-size:18px; font-weight:600; text-align:center; padding:0 24px;
+    pointer-events:none;
+  }
   /* Высота этой области раньше была "резиновой" (flex:1) и пересчитывалась
      при каждом изменении высоты оверлея — из-за этого при открытии клавиатуры
      (быстрый ввод количества) рамка сканирования визуально "прыгала". Теперь
@@ -3043,7 +3053,20 @@ function resizeImageToFile(img, maxSide) {
     const w = img.naturalWidth || img.width;
     const h = img.naturalHeight || img.height;
     if (!w || !h) { resolve(null); return; }
-    const scale = Math.min(1, maxSide / Math.max(w, h));
+    // РАНЬШЕ здесь стояло Math.min(1, ...) — то есть функция умела ТОЛЬКО
+    // уменьшать, а если фото уже меньше maxSide (например, пришло по почте/
+    // мессенджеру уменьшенным до 305×239), scale получался >1 и обрезался до
+    // 1 — то есть по факту ничего не менялось, и все три попытки (1600/1000/
+    // 700) просто повторяли исходное маленькое фото без всякого толку. Из-за
+    // этого на маленьких фото decodedText оставался null на каждом шаге, и
+    // пользователь видел «код не найден», хотя сам QR на фото был полностью
+    // читаемым — просто физически слишком мелким в пикселях (проверено:
+    // реальное фото 305×239 не читалось ни одним декодером как есть, но то
+    // же самое фото, просто увеличенное canvas'ом до ~1600px по длинной
+    // стороне — читается стабильно). Убрали ограничение — теперь maxSide
+    // работает в обе стороны: большие фото всё так же уменьшаются (scale<1,
+    // поведение не изменилось), а маленькие теперь увеличиваются (scale>1).
+    const scale = maxSide / Math.max(w, h);
     const cw = Math.max(1, Math.round(w * scale));
     const ch = Math.max(1, Math.round(h * scale));
     const canvas = document.createElement("canvas");
@@ -3263,6 +3286,59 @@ document.getElementById("scanFileInput").onchange = async (e) => {
   const file = e.target.files && e.target.files[0];
   e.target.value = ""; // сброс — иначе повторный выбор ТОГО ЖЕ файла не вызовет change второй раз
   if (!file) return;
+  await processGalleryFile(file);
+};
+// ---------- перетащить фото (drag-and-drop) и вставить из буфера (Ctrl+V) — только для компьютера ----------
+// По просьбе: на компьютере (в отличие от телефона) часто удобнее не искать
+// файл через системный диалог "выбрать фото", а просто перетащить его из
+// папки прямо в окно сканера, либо скопировать скриншот/фото (например, из
+// Telegram/почты) и вставить Ctrl+V. Логика распознавания та же самая, что и
+// при выборе через 🖼️ — выносим её в processGalleryFile(file), чтобы не
+// дублировать код трижды. На телефоне события dragover/drop/paste в браузере
+// практически никогда не возникают (там нет мыши/буфера в этом смысле), так
+// что отдельная проверка "это десктоп" не нужна — на мобильном эти слушатели
+// просто никогда не сработают.
+const scanOverlayEl = document.getElementById("scanOverlay");
+["dragenter", "dragover"].forEach((evt) => {
+  scanOverlayEl.addEventListener(evt, (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    scanOverlayEl.classList.add("drag-over");
+  });
+});
+["dragleave", "dragend"].forEach((evt) => {
+  scanOverlayEl.addEventListener(evt, (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    scanOverlayEl.classList.remove("drag-over");
+  });
+});
+scanOverlayEl.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  scanOverlayEl.classList.remove("drag-over");
+  const dtFile = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!dtFile || !dtFile.type || dtFile.type.indexOf("image") !== 0) return;
+  await processGalleryFile(dtFile);
+});
+// paste — слушаем на document, а не только на оверлее: фокус клавиатуры
+// внутри оверлея сканера обычно ни на чём конкретном не стоит, а document
+// всегда получает paste. Срабатываем только если сканер сейчас открыт —
+// иначе вставка фото на любом другом экране приложения (например, в поле
+// количества) неожиданно открывала бы разбор QR, что не нужно.
+document.addEventListener("paste", async (e) => {
+  if (scanOverlayEl.classList.contains("hidden")) return;
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.kind === "file" && item.type && item.type.indexOf("image") === 0) {
+      const pastedFile = item.getAsFile();
+      if (pastedFile) { e.preventDefault(); await processGalleryFile(pastedFile); }
+      break;
+    }
+  }
+});
+async function processGalleryFile(file) {
   const scanner = getFileScanner();
   const hint = document.getElementById("scanHintText");
   if (!scanner) {
@@ -3429,7 +3505,7 @@ document.getElementById("scanFileInput").onchange = async (e) => {
   } finally {
     fileScanBusy = false;
   }
-};
+}
 
 document.getElementById("qeCancelBtn").onclick = closeQuickEntry;
 document.getElementById("scanCheckOkBtn").onclick = closeQuickEntry;
